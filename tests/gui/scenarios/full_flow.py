@@ -33,8 +33,8 @@ def scenario(w):
     from musik_bingo.domain.song_list import parse_songs
     from musik_bingo.presentation import dialogs
 
-    check("Start mit Standardliste (45 Songs)", len(parse_songs(w._song_text())) == 45)
-    check("Seitenleiste zeigt Songliste", w.summary_values["list"].get_text() == "45 Songs")
+    check("Start mit Standardliste (75 Songs, Charts + Weihnachten)", len(parse_songs(w._song_text())) == 75)
+    check("Seitenleiste zeigt Songliste", w.summary_values["list"].get_text() == "75 Songs")
     check("Datenschutz-Hinweis „offline“ sichtbar", "offline" in w.privacy_pill.get_text())
 
     csv = ('"Track URI","Track Name","Artist Name(s)"\n'
@@ -61,6 +61,9 @@ def scenario(w):
     check("30 Karten 5×5 erzeugt", len(w.service.game.cards) == 30 and w.service.game.size == 5)
     check("Ansicht wechselt zu Karten", w.stack.get_visible_child_name() == "cards")
     check("Vorschau zeigt 18 Karten", len(w.cards_flow.get_children()) == 18)
+    check("Spielprognose angezeigt", w.cards_forecast.get_text().startswith("Prognose:")
+          and "Volle Karte" in w.forecast_label.get_text())
+    check("Gewinngarantie erfüllt", w.service.guarantee().ok)
 
     pdf = TMP / "karten.pdf"
     operation = Gtk.PrintOperation()
@@ -104,10 +107,27 @@ def scenario(w):
     visible = [r for r in w.pool_list.get_children() if r.get_child_visible() and r.get_mapped()]
     check("Suche filtert Songpool", 1 <= len(visible) < 40)
 
+    # Gewinnziel „Volle Karte“: erst nach allen Songs der Karte erfüllt
+    w.win_buttons["volle_karte"].set_active(True)
+    check("Gewinnziel umgestellt", w.service.win_target == "volle_karte")
+    result = {}
+    dialogs.bingo_check_dialog = lambda parent, count, rule: (1, "Oma")
+    dialogs.bingo_result_dialog = lambda *args: result.update(reached=args[10], full=args[11], label=args[9])
+    w._verify_bingo(None)
+    check("Volle Karte noch nicht erreicht", result.get("reached") is False and result.get("label") == "Volle Karte")
+    while w.service.game.caller.draw_next():
+        pass
+    w._render_caller()
+    winners = [n for n in range(1, len(w.service.game.cards) + 1) if w.service.check_win(n)[0]]
+    check("alle Songs gespielt → jede Karte gewinnt (Garantie)", len(winners) == len(w.service.game.cards))
+    w._verify_bingo(None)
+    check("Bingo-Prüfung bestätigt Volle Karte", result.get("reached") is True and result.get("full") is True)
+
     w._save_settings()
     saved = json.loads((TMP / "data" / "musik-bingo" / "spielstand.json").read_text())
     check("Spielstand gespeichert (Index, Karten, Links)",
-          saved["caller_index"] == w.service.game.caller.index and len(saved["cards"]) == 30)
+          saved["caller_index"] == w.service.game.caller.index and len(saved["cards"]) == 30
+          and saved["settings"]["win_target"] == "volle_karte")
     w._toggle_theme(None)
     check("Design umschaltbar und gemerkt", (TMP / "config" / "musik-bingo" / "theme").read_text() == "light")
     check("Keine Fehlermeldungen", MESSAGES == [])

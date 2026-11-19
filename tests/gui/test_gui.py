@@ -34,7 +34,7 @@ class GuiTests(unittest.TestCase):
         self.scenario("follow_spotify.py")
 
     def test_edge_cases(self):
-        for mode in ("broken", "deep", "empty", "big"):
+        for mode in ("broken", "deep", "defaults", "empty", "big"):
             with self.subTest(mode=mode):
                 self.scenario("edge_cases.py", mode)
 

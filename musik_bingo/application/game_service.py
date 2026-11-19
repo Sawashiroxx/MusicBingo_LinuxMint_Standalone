@@ -3,6 +3,7 @@ from dataclasses import dataclass, field
 from musik_bingo.domain.caller import Caller
 from musik_bingo.domain.card_generator import generate_cards, required_songs, winning_lines
 from musik_bingo.domain.models import BingoCard, Song
+from musik_bingo.domain.forecast import WIN_TARGETS, Forecast, Guarantee, card_status, forecast, guarantee, target_reached
 from musik_bingo.domain.song_list import format_songs, parse_songs
 
 PLAYBACK_TARGETS = ("lokal", "spotify", "youtube")
@@ -37,6 +38,8 @@ class GameService:
         # die App zieht automatisch den gerade laufenden Song.
         self.follow_player = False
         self.player_name = ""
+        # Gewinnziel der aktuellen Runde: reihe, zwei_reihen, volle_karte
+        self.win_target = "reihe"
 
     def set_song_text(self, text: str) -> list[Song]:
         self.song_text = text
@@ -80,6 +83,27 @@ class GameService:
             self.game.diagonal_wins,
         )
 
+    def set_win_target(self, target: str) -> None:
+        if target not in WIN_TARGETS:
+            raise ValueError("Unbekanntes Gewinnziel.")
+        self.win_target = target
+
+    def check_win(self, card_number: int) -> tuple[bool, list[str], bool]:
+        """(Gewinnziel erreicht?, vollständige Linien, Karte voll?) für eine Kartennummer."""
+        lines = self.check_bingo(card_number)
+        game = self.game
+        complete, full = card_status(game.cards[card_number - 1], game.size, game.free_space,
+                                     game.caller.drawn, game.diagonal_wins)
+        return target_reached(self.win_target, complete, full), lines, full
+
+    def forecast(self, runs: int = 300) -> Forecast:
+        game = self.game
+        return forecast(game.cards, game.songs, game.size, game.free_space, game.diagonal_wins, runs)
+
+    def guarantee(self) -> Guarantee:
+        game = self.game
+        return guarantee(game.cards, game.songs, game.size, game.free_space)
+
     def draw_song(self, song: Song) -> bool:
         """Markiert einen bestimmten Song als nächsten gezogenen (Folgen-Modus)."""
         return self.game.caller.draw_song(song)
@@ -115,6 +139,7 @@ class GameService:
                 "playback_target": self.playback_target,
                 "follow_player": self.follow_player,
                 "player_name": self.player_name,
+                "win_target": self.win_target,
             },
             "songs": [song.to_dict() for song in self.game.songs],
             "cards": [card.to_dict() for card in self.game.cards],
@@ -275,4 +300,8 @@ class GameService:
         if not isinstance(player_name, str) or len(player_name) > 255:
             raise ValueError("Ungültiger Playername im Spielstand.")
         service.player_name = player_name
+        win_target = settings.get("win_target", "reihe")
+        if win_target not in WIN_TARGETS:
+            raise ValueError("Ungültiges Gewinnziel im Spielstand.")
+        service.win_target = win_target
         return service

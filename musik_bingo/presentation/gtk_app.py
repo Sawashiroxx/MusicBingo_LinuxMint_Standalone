@@ -13,6 +13,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
 from musik_bingo.application.game_service import GameService
 from musik_bingo.domain.catalog import Catalog, parse_catalog
+from musik_bingo.domain.forecast import WIN_TARGET_LABELS, WIN_TARGETS
 from musik_bingo.domain.card_generator import NotEnoughSongs, required_songs, unique_card_capacity, winning_cells
 from musik_bingo.domain.matching import PlayingTrack, SongMatcher, compare_with_playlist
 from musik_bingo.domain.models import Song
@@ -27,7 +28,7 @@ from musik_bingo.presentation import dialogs, printing
 from musik_bingo.presentation.dialogs import MODE_APPEND, add_class, escape, field, label
 from musik_bingo.presentation.theme import css_for
 
-from musik_bingo.paths import CATALOG_DIR, DEFAULT_SONGS as DEFAULT_SONGS_PATH, ICON_PATH
+from musik_bingo.paths import CATALOG_DIR, DEFAULT_SONGS as DEFAULT_SONGS_PATH, ICON_PATH, ICON_SIZES, ICON_THEME_DIR
 
 DEFAULT_SONGS = DEFAULT_SONGS_PATH.read_text(encoding="utf-8")
 PAGES = ("songs", "cards", "game")
@@ -60,9 +61,15 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
     def __init__(self, app: Gtk.Application):
         super().__init__(application=app, title="Musik Bingo")
         try:
-            self.set_icon_from_file(str(ICON_PATH))
-        except GLib.Error:
-            self.set_icon_name("audio-x-generic")
+            from gi.repository import GdkPixbuf
+            icons = [GdkPixbuf.Pixbuf.new_from_file(str(ICON_THEME_DIR / f"{size}x{size}" / "apps" / "musik-bingo.png"))
+                     for size in ICON_SIZES if size <= 256]
+            self.set_icon_list(icons)
+        except (GLib.Error, ValueError, ImportError):
+            try:
+                self.set_icon_from_file(str(ICON_PATH))
+            except GLib.Error:
+                self.set_icon_name("audio-x-generic")
         self.set_default_size(1320, 800)
         self.set_size_request(1000, 640)
         self.store = FileStore()
@@ -88,6 +95,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.unmatched_track: PlayingTrack | None = None
         self.spotify_scheme = has_scheme_handler("spotify")
         self.reader: mpris.PlaylistReader | None = None
+        self.forecast_text = ""
         self.closing = False
 
         self.theme = "dark"
@@ -328,7 +336,9 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.size_combo.set_active(2)
         self.size_combo.connect("changed", self._update_field_count)
         self.count_spin = Gtk.SpinButton.new_with_range(1, 500, 1)
-        self.count_spin.set_value(30)
+        self.count_spin.set_value(160)
+        self.count_spin.set_tooltip_text("Faustregel: Gästezahl + 10–15 % Puffer (z. B. 140 Gäste → 160 Karten). "
+                                         "Mehr Karten verändern den Spielverlauf kaum.")
         self.count_spin.connect("value-changed", self._count_changed)
         grid = Gtk.Grid(column_spacing=12, row_spacing=10, column_homogeneous=True)
         grid.attach(field("Kartengröße", self.size_combo), 0, 0, 1, 1)
@@ -372,6 +382,8 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.cards_meta = label("", "pill", "small")
         self.cards_meta.set_valign(Gtk.Align.CENTER)
         head.pack_start(self.cards_meta, False, False, 0)
+        self.cards_forecast = label("", "muted", "small", wrap=True)
+        body.pack_start(self.cards_forecast, False, False, 0)
         self.print_button = self._button("Drucken / PDF …", self._print, "primary", "big", icon="printer-symbolic")
         self.print_button.set_valign(Gtk.Align.CENTER)
         head.pack_end(self.print_button, False, False, 0)
@@ -395,6 +407,20 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.rule_pill = label("", "pill", "small")
         self.rule_pill.set_valign(Gtk.Align.CENTER)
         head.pack_end(self.rule_pill, False, False, 0)
+        win_box = add_class(Gtk.Box(spacing=0), "linked")
+        win_box.set_valign(Gtk.Align.CENTER)
+        self.win_buttons: dict[str, Gtk.RadioButton] = {}
+        group = None
+        for key in WIN_TARGETS:
+            button = Gtk.RadioButton.new_with_label_from_widget(group, WIN_TARGET_LABELS[key])
+            button.set_mode(False)
+            button.set_tooltip_text("Gewinnziel dieser Runde – „Bingo prüfen“ prüft genau dieses Ziel.")
+            group = group or button
+            button.connect("toggled", self._win_target_changed, key)
+            win_box.pack_start(button, False, False, 0)
+            self.win_buttons[key] = button
+        head.pack_end(win_box, False, False, 8)
+        head.pack_end(label("Gewinnziel", "tiny", "muted"), False, False, 0)
         columns = Gtk.Box(spacing=18)
         body.pack_start(columns, True, True, 0)
         left_scroll = Gtk.ScrolledWindow()
@@ -453,6 +479,8 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         progress_row.pack_start(self.progress_label, False, False, 0)
         self.hero.pack_end(progress_row, False, False, 0)
         left.pack_start(self.hero, False, False, 0)
+        self.forecast_label = label("", "muted", "small", wrap=True)
+        left.pack_start(self.forecast_label, False, False, 0)
 
         # Warnung: läuft, steht aber nicht auf den Karten
         self.warning_revealer = Gtk.Revealer()
@@ -538,6 +566,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             self.page_combo.set_active(1 if service.per_page == 1 else 0)
             self.auto_play_check.set_active(service.auto_play)
             self.target_buttons[service.playback_target].set_active(True)
+            self.win_buttons[service.win_target].set_active(True)
             self.print_per_page = service.per_page
             self.follow_switch.set_active(False)
         finally:
@@ -545,6 +574,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self._update_field_count()
         self._render_cards()
         self._render_caller()
+        self._update_forecast()
 
     def _restore(self) -> None:
         try:
@@ -850,9 +880,34 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             self._render_caller()
             self._save()
             self._select_page("cards")
-            self._set_status(f"{len(cards)} Karten aus {len(songs)} Songs erzeugt")
+            check = self.service.guarantee()
+            if not check.ok:
+                dialogs.message(self, Gtk.MessageType.ERROR, "Gewinn nicht garantiert", "\n".join(check.problems))
+            self._update_forecast()
+            self._set_status(f"{len(cards)} Karten aus {len(songs)} Songs erzeugt · {self.forecast_text}")
         except (ValueError, NotEnoughSongs) as error:
             dialogs.message(self, Gtk.MessageType.WARNING, "Karten konnten nicht erzeugt werden", str(error))
+
+    def _update_forecast(self) -> None:
+        """Spielprognose für die aktuelle Runde (wann gibt es die ersten Gewinner?)."""
+        self.forecast_text = ""
+        if not self.service.game.cards:
+            return
+        try:
+            result = self.service.forecast(runs=200)
+        except ValueError:
+            return
+        parts = [f"{WIN_TARGET_LABELS[key]} ≈ Song {result.stages[key].median}" for key in WIN_TARGETS]
+        self.forecast_text = "Prognose: " + " · ".join(parts) + f" (von {result.pool_size})"
+        tooltip = "\n".join(
+            f"{WIN_TARGET_LABELS[key]}: meist bei Song {stage.early}–{stage.late}, spätestens {stage.worst}, "
+            f"Ø {stage.winners:.1f} Gewinner gleichzeitig" for key, stage in result.stages.items())
+        tooltip += (f"\n\nGarantie: Spätestens nach allen {result.pool_size} Songs hat jede Karte "
+                    "„Volle Karte“ – es gibt immer einen Gewinner, solange alle Songs der Liste gespielt werden.")
+        for widget in (getattr(self, "forecast_label", None), getattr(self, "cards_forecast", None)):
+            if widget is not None:
+                widget.set_text(self.forecast_text)
+                widget.set_tooltip_text(tooltip)
 
     def _render_cards(self) -> None:
         for child in self.cards_flow.get_children():
@@ -1108,22 +1163,31 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         game = self.service.game
         if not game.cards:
             return
-        rule = "Reihen und Spalten" + (" sowie Diagonalen" if game.diagonal_wins else "")
+        rule = (f"{WIN_TARGET_LABELS[self.service.win_target]} – Reihen und Spalten"
+                + (" sowie Diagonalen" if game.diagonal_wins else ""))
         answer = dialogs.bingo_check_dialog(self, len(game.cards), rule)
         if answer is None:
             return
         number, name = answer
         try:
-            wins = self.service.check_bingo(number)
+            reached, wins, full = self.service.check_win(number)
         except ValueError as error:
             dialogs.message(self, Gtk.MessageType.WARNING, "Ungültige Kartennummer", str(error))
             return
         card = game.cards[number - 1]
         cells = winning_cells(card, game.size, game.free_space, game.caller.drawn, game.diagonal_wins)
         dialogs.bingo_result_dialog(self, card, number, name, game.size, game.free_space,
-                                    {song.key for song in game.caller.drawn}, wins, cells)
+                                    {song.key for song in game.caller.drawn}, wins, cells,
+                                    WIN_TARGET_LABELS[self.service.win_target], reached, full)
 
     # ================================================================ Wiedergabe
+
+    def _win_target_changed(self, button: Gtk.RadioButton, key: str) -> None:
+        if not button.get_active() or self._loading_state:
+            return
+        self.service.set_win_target(key)
+        self._save()
+        self._set_status(f"Gewinnziel: {WIN_TARGET_LABELS[key]}")
 
     def _target_changed(self, button: Gtk.RadioButton, key: str) -> None:
         if not button.get_active():

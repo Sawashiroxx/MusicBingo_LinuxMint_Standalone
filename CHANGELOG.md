@@ -1,5 +1,14 @@
 # Änderungsprotokoll
 
+## 2.1 – November 2026
+
+- Startliste neu: 75 Songs, 45 Chart-Hits 2025/26 und 30 Weihnachtslieder gemischt.
+- Kataloge: Jahrescharts 2025 komplett (Top 100), weitere Hits 2026.
+- Gewinnziel pro Runde (1 Reihe, 2 Reihen, volle Karte); „Bingo prüfen“ prüft genau dieses Ziel.
+- Spielprognose nach dem Erzeugen und Gewinngarantie-Prüfung.
+- Standardwerte für ~140 Gäste: 160 Karten, Zufallsmix 75 Songs / 40 % Weihnachten.
+- Neues App-Icon in allen Größen.
+
 ## 2.0 – November 2026
 
 - Neue Oberfläche: Seitenleiste mit drei Bereichen, große Jetzt-Anzeige, Songpool mit Suche, überarbeitetes dunkles/helles Design, eigenes App-Icon, Vollbild (F11).

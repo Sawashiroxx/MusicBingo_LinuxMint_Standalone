@@ -23,8 +23,12 @@ class DesktopInstallerTests(unittest.TestCase):
             )
             desktop_file = Path(data_home) / "applications" / "musik-bingo.desktop"
             contents = desktop_file.read_text(encoding="utf-8")
-            icon = Path(data_home) / "icons" / "hicolor" / "scalable" / "apps" / "musik-bingo.svg"
-            self.assertTrue(icon.is_file())
+            icons = Path(data_home) / "icons" / "hicolor"
+            self.assertTrue((icons / "scalable" / "apps" / "musik-bingo.svg").is_file())
+            for size in (16, 24, 32, 48, 64, 128, 256, 512):
+                png = icons / f"{size}x{size}" / "apps" / "musik-bingo.png"
+                self.assertTrue(png.is_file(), png)
+                self.assertEqual(png.read_bytes()[:8], b"\x89PNG\r\n\x1a\n")
             if shutil.which("desktop-file-validate"):
                 subprocess.run(["desktop-file-validate", str(desktop_file)], check=True)
 

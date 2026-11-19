@@ -19,7 +19,7 @@ musik-bingo = "musik_bingo.main:main"
 include = ["musik_bingo*"]
 
 [tool.setuptools.package-data]
-musik_bingo = ["default_songs.txt", "catalogs/*.txt", "resources/*.svg"]
+musik_bingo = ["data/*.txt", "data/catalogs/*.txt", "data/icons/hicolor/*/apps/*"]
 
 [tool.ruff]
 target-version = "py310"

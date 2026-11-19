@@ -235,11 +235,11 @@ def mix_dialog(parent: Gtk.Window, catalogs: list[Catalog]) -> tuple[MixResult, 
         "Spotify/YouTube anlegen, damit Musik und Karten übereinstimmen.", "muted", wrap=True), False, False, 0)
 
     total = Gtk.SpinButton.new_with_range(9, 500, 1)
-    total.set_value(40)
-    content.pack_start(field("Anzahl Songs", total, "Für 5×5-Karten mit Freifeld mindestens 24 – "
-                                                   "mehr Songs = längeres Spiel."), False, False, 0)
+    total.set_value(75)
+    content.pack_start(field("Anzahl Songs", total, "Faustregel 5×5: ca. 1 Song pro Minute, volle Karte nach "
+                                                   "≈ 85 % der Songs. 75 Songs ≈ 1 Stunde."), False, False, 0)
     share = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 5)
-    share.set_value(50)
+    share.set_value(40)
     share.set_value_pos(Gtk.PositionType.RIGHT)
     share.set_digits(0)
     share.connect("format-value", lambda _scale, value: f"{int(value)} % Weihnachten")
@@ -341,18 +341,24 @@ def bingo_check_dialog(parent: Gtk.Window, card_count: int, rule: str) -> tuple[
 
 def bingo_result_dialog(parent: Gtk.Window, card: BingoCard, number: int, name: str, size: int,
                         free_space: bool, drawn_keys: set[str], wins: list[str],
-                        winning_cells: set[int]) -> None:
-    title = "BINGO bestätigt!" if wins else "Noch kein Bingo"
+                        winning_cells: set[int], target_label: str = "", reached: bool | None = None,
+                        full: bool = False) -> None:
+    if reached is None:  # ohne Gewinnziel: jede volle Linie zählt
+        reached = bool(wins)
+        target_label = target_label or "1 Reihe"
+    title = "BINGO bestätigt!" if reached else "Noch kein Bingo"
     dialog, content, _ok = base_dialog(parent, title, None, 640)
     who = f"Karte #{number}" + (f" · {name}" if name else "")
     headline = label(f"<span size='x-large' weight='heavy'>{escape(who)}</span>", markup=True)
     content.pack_start(headline, False, False, 0)
-    if wins:
+    done = ("Volle Karte!" if full else "") or (("Vollständig: " + ", ".join(wins)) if wins else "")
+    if reached:
         box = add_class(Gtk.Box(), "info-box")
-        box.pack_start(label("Vollständig: " + ", ".join(wins), wrap=True), True, True, 0)
+        box.pack_start(label(f"Gewinnziel „{target_label}“ erreicht. {done}", wrap=True), True, True, 0)
     else:
         box = add_class(Gtk.Box(), "warning-box")
-        box.pack_start(label("Auf dieser Karte ist noch keine Reihe/Spalte vollständig gezogen.", wrap=True),
+        detail = done or "Noch keine Reihe/Spalte vollständig gezogen."
+        box.pack_start(label(f"Gewinnziel „{target_label}“ noch nicht erreicht. {detail}", wrap=True),
                        True, True, 0)
     content.pack_start(box, False, False, 0)
     grid = Gtk.Grid(column_spacing=4, row_spacing=4, column_homogeneous=True, row_homogeneous=True)

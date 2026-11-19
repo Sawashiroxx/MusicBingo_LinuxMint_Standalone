@@ -21,7 +21,16 @@ def scenario(w):
         check(f"{MODE}: Warnung statt Absturz", "Spielstand konnte nicht geladen werden" in MESSAGES)
         check(f"{MODE}: App startet mit leerer Runde", not w.service.game.cards)
         w._generate(None)
-        check(f"{MODE}: danach normal spielbar", len(w.service.game.cards) == 30)
+        check(f"{MODE}: danach normal spielbar", len(w.service.game.cards) == 160)
+    elif MODE == "defaults":
+        from musik_bingo.domain.song_list import parse_songs
+        check("Startliste: 75 Songs", len(parse_songs(w._song_text())) == 75)
+        check("Standard: 160 Karten für ~140 Gäste", w.count_spin.get_value_as_int() == 160)
+        w._generate(None)
+        forecast = w.service.forecast(runs=200)
+        check("Prognose 1 Reihe ≈ 12–22 Songs", 12 <= forecast.stages["reihe"].median <= 22)
+        check("Prognose Volle Karte ≈ 58–68 Songs", 58 <= forecast.stages["volle_karte"].median <= 68)
+        check("Garantie mit Standardwerten", w.service.guarantee().ok)
     elif MODE == "empty":
         w.song_buffer.set_text("")
         w._generate(None)

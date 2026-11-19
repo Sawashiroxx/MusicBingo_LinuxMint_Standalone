@@ -6,11 +6,17 @@ Stand: 19.11.2026 · Umgebung: Ubuntu 24.04 (= Basis Linux Mint 22), Python 3.12
 
 | Suite | Tests | Ergebnis |
 |---|---|---|
-| Unit | 83 | ✅ |
+| Unit (inkl. Gewinngarantie und Prognose) | 94 | ✅ |
 | Integration (Spotify-Simulation über D-Bus, GStreamer, Druck, Installer) | 20 | ✅ |
 | Sicherheit | 14 | ✅ |
-| GUI/E2E unter Xvfb (4 Szenarien, ~80 Einzelprüfungen) | 4 | ✅ |
+| GUI/E2E unter Xvfb (4 Szenarien, ~90 Einzelprüfungen) | 4 | ✅ |
 | ruff (Fehler, Bugs, bandit-Sicherheitsregeln), shellcheck | – | ✅ |
+
+## Gewinngarantie (140 Gäste)
+
+- Simulation mit 120/140/170 Karten und 60/75/90 Songs: Die Kartenzahl ändert den Ablauf kaum, die Songzahl bestimmt die Spiellänge.
+- Standard (75 Songs, 160 Karten, 5×5): 1 Reihe nach ~16, 2 Reihen nach ~30, volle Karte nach ~63 Songs; meist genau ein Gewinner.
+- Getestet: Nach allen Songs gewinnt jede Karte jedes Ziel; in 40 zufälligen Spielen gab es immer Gewinner; fehlt ein Kartensong in der Playlist, schlägt die Garantie-Prüfung an.
 
 ## Unabhängige Code-Prüfung
 
