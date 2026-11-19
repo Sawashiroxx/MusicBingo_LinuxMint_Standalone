@@ -7,12 +7,16 @@ from .models import Song
 _SEPARATOR = re.compile(r"\s+[–—-]\s+")
 _DASH = re.compile(r"\s+[–—]\s+")
 _LINK_SUFFIX = re.compile(r"\s+\|\s+(\S+)\s*$")
+# Kommentar: „#“ allein oder mit Leerzeichen danach. „#SELFIE“ ist ein Songtitel.
+_COMMENT = re.compile(r"^#(\s|#|$)")
+# „Titel –“ am Zeilenende: Titel mit Bindestrich, aber ohne Interpret
+_TRAILING_DASH = re.compile(r"\s+[–—]$")
 
 
 def parse_song_line(line: str) -> Song | None:
     """Eine Zeile „Titel – Interpret“ mit optionalem „ | Link“ am Ende."""
     line = line.strip()
-    if not line or line.startswith("#"):
+    if not line or _COMMENT.match(line):
         return None
     link = ""
     match = _LINK_SUFFIX.search(line)
@@ -24,7 +28,9 @@ def parse_song_line(line: str) -> Song | None:
     # Das eigene Format trennt mit Gedankenstrich „ – “. Ist einer vorhanden, gilt der
     # letzte; so bleiben Bindestriche im Titel erhalten („Song - 1984 Version – Band“).
     dashes = list(_DASH.finditer(line))
-    if dashes:
+    if _TRAILING_DASH.search(line):
+        title, artist = _TRAILING_DASH.sub("", line).strip(), ""
+    elif dashes:
         last = dashes[-1]
         title, artist = line[: last.start()].strip(), line[last.end():].strip()
     else:
@@ -39,7 +45,7 @@ def parse_song_line(line: str) -> Song | None:
 def parse_songs(text: str) -> list[Song]:
     """Liest pro Zeile einen Titel und optional Interpret und Link ein.
 
-    Leere Zeilen und Zeilen, die mit # beginnen, werden übersprungen.
+    Leere Zeilen und Kommentare („# …“) werden übersprungen.
     Doppelte Titel/Interpreten werden ohne Groß-/Kleinschreibung entfernt.
     """
     songs: list[Song] = []
@@ -53,7 +59,23 @@ def parse_songs(text: str) -> list[Song]:
 
 
 def format_song(song: Song) -> str:
-    return f"{song.display_name} | {song.link}" if song.link else song.display_name
+    """Eine Zeile, die parse_song_line wieder genau so einliest."""
+    title, artist = song.title, song.artist
+    if artist:
+        # Der letzte „ – “ trennt den Interpreten ab – im Interpreten selbst darf keiner stehen.
+        artist = _DASH.sub(" - ", artist)
+        text = f"{title} – {artist}"
+        parsed = parse_song_line(text)
+        if parsed is None or (parsed.title, parsed.artist) != (title, artist):
+            # Exotische Gedankenstriche am Rand des Interpreten: als Bindestrich schreiben
+            text = f"{title} – " + artist.replace("–", "-").replace("—", "-")
+    elif _SEPARATOR.search(title) or _TRAILING_DASH.search(title):
+        text = f"{title} –"  # sonst würde „Stille Nacht - Heilige Nacht“ zerlegt
+    else:
+        text = title
+    if _COMMENT.match(text):
+        text = text.replace("#", "＃", 1)  # Titel „# 1“ wäre sonst ein Kommentar
+    return f"{text} | {song.link}" if song.link else text
 
 
 def format_songs(songs: list[Song]) -> str:

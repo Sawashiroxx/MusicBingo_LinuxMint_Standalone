@@ -67,6 +67,7 @@ class FakePlayer:
         self.ad_ms = ad_ms
         self.next_at: list[str] = []
         self.block_next_on_ads = False
+        self.reject_open_uri = False  # wie eine Spotify-Version, die OpenUri nicht unterstützt
         self.ready = threading.Event()
         self.thread = threading.Thread(target=self._run, args=(address, name), daemon=True)
         self.thread.start()
@@ -112,6 +113,9 @@ class FakePlayer:
             self.emit()
         elif method == "Pause":
             self.status = "Paused"
+        elif method == "OpenUri" and self.reject_open_uri:
+            invocation.return_dbus_error("org.mpris.MediaPlayer2.Error", "OpenUri wird nicht unterstützt")
+            return
         invocation.return_value(None)
 
     def advance(self) -> None:

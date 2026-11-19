@@ -22,11 +22,12 @@ class FileStore:
     def backup_dir(self) -> Path:
         return self.path.parent / "sicherungen"
 
-    def backup(self, reason: str) -> Path | None:
+    def backup(self, reason: str, keep: bool = False) -> Path | None:
         """Sichert den aktuellen Spielstand, bevor er ersetzt wird (z. B. neue Karten).
 
         Gedruckte Karten bleiben so prüfbar, auch wenn versehentlich neu erzeugt
         wurde. Es werden die letzten MAX_BACKUPS Sicherungen aufbewahrt.
+        ``keep``: Kopie einer unlesbaren Datei – sie zählt nicht zur Rotation und wird nie gelöscht.
         """
         if not self.path.is_file():
             return None
@@ -34,7 +35,8 @@ class FileStore:
         import re
         safe_reason = re.sub(r"[^a-z0-9-]+", "-", reason.casefold()).strip("-")[:30] or "sicherung"
         stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S-%f")
-        target = self.backup_dir / f"spielstand_{stamp}_{safe_reason}.json"
+        prefix = "unlesbar" if keep else "spielstand"
+        target = self.backup_dir / f"{prefix}_{stamp}_{safe_reason}.json"
         self.backup_dir.mkdir(parents=True, exist_ok=True)
         os.chmod(self.backup_dir, 0o700)
         data = self.path.read_bytes()

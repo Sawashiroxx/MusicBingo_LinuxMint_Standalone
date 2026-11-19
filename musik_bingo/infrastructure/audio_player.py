@@ -11,8 +11,37 @@ except (ImportError, ValueError):
     Gst = None
 
 
+# Elemente, die selbst Netzwerkverbindungen öffnen könnten (HTTP-Quellen, HLS/DASH-Demuxer,
+# RTSP/SDP …). Eine als .mp3 getarnte HLS-Playlist würde sonst Segmente aus dem Netz laden.
+_BLOCKED_KLASS = ("Network", "Adaptive")
+_ALLOWED_SOURCES = ("filesrc",)
+
+
+def _is_blocked(factory) -> bool:
+    if factory is None:
+        return False
+    klass = factory.get_metadata("klass") or ""
+    if any(part in klass for part in _BLOCKED_KLASS):
+        return True
+    return "Source" in klass.split("/") and factory.get_name() not in _ALLOWED_SOURCES
+
+
+def block_network_elements() -> int:
+    """Netzwerkfähige Elemente aus dem automatischen Zusammenstecken nehmen (nur dieser Prozess)."""
+    count = 0
+    for factory in Gst.Registry.get().get_feature_list(Gst.ElementFactory):
+        klass = factory.get_metadata("klass") or ""
+        if any(part in klass for part in _BLOCKED_KLASS) and factory.get_rank() != Gst.Rank.NONE:
+            factory.set_rank(Gst.Rank.NONE)
+            count += 1
+    return count
+
+
 class AudioPlayer:
-    """Kleiner lokaler Player. Gst wird im GTK-Hauptloop verarbeitet."""
+    """Kleiner lokaler Player – spielt nur lokale Dateien, ohne Netzwerkzugriff.
+
+    Gst wird im GTK-Hauptloop verarbeitet.
+    """
 
     def __init__(
         self,
@@ -24,6 +53,7 @@ class AudioPlayer:
         if Gst is None:
             raise RuntimeError("GStreamer-Python (python3-gst-1.0) ist nicht installiert.")
         Gst.init(None)
+        block_network_elements()
         self.on_finished = on_finished
         self.on_error = on_error
         self.playbin = Gst.ElementFactory.make("playbin", "musik-bingo-player")
@@ -31,6 +61,9 @@ class AudioPlayer:
             raise RuntimeError("GStreamer konnte keinen Audioplayer erstellen.")
         if audio_sink is not None:
             self.playbin.set_property("audio-sink", audio_sink)
+        # Zweite Sicherung: Taucht trotzdem ein Netzwerk-Element auf, wird sofort abgebrochen.
+        self.blocked = ""
+        self.playbin.connect("deep-element-added", self._element_added)
         self.bus = self.playbin.get_bus()
         self.watch_bus = watch_bus
         if watch_bus:
@@ -82,6 +115,21 @@ class AudioPlayer:
         self.stop()
         if self.watch_bus:
             self.bus.remove_signal_watch()
+
+    def _element_added(self, _bin, _sub_bin, element) -> None:
+        # Läuft im Streaming-Thread: nur markieren und den Abbruch im Hauptloop auslösen.
+        if self.blocked or not _is_blocked(element.get_factory()):
+            return
+        self.blocked = element.get_factory().get_name()
+        element.set_locked_state(True)  # Element startet nicht, öffnet also nichts
+        GLib.idle_add(self._abort_blocked)
+
+    def _abort_blocked(self) -> bool:
+        name, self.blocked = self.blocked, ""
+        self.stop()
+        if self.on_error:
+            self.on_error(f"Datei wurde nicht abgespielt: Sie ist keine reine Audiodatei ({name}).")
+        return False
 
     def _on_message(self, _bus, message) -> None:
         if message.type == Gst.MessageType.EOS:

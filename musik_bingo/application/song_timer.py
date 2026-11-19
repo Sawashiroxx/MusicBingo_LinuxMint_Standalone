@@ -36,11 +36,11 @@ class SongTimer:
         return self.seconds > 0
 
     def start(self) -> None:
-        """Nach jedem gezogenen Song aufrufen: Countdown beginnt neu."""
+        """Nach jedem gezogenen Song aufrufen: Countdown beginnt neu (eine alte Pause endet)."""
         if not self.enabled:
             self.stop()
             return
-        self.phase, self.remaining = PLAYING, self.seconds
+        self.phase, self.remaining, self.paused = PLAYING, self.seconds, False
 
     def stop(self) -> None:
         self.phase, self.remaining, self.paused = IDLE, 0, False
