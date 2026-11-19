@@ -83,9 +83,7 @@ class GameService:
         self.card_count = count
         self.diagonal_wins = diagonal_wins
         self.game.caller = Caller(songs)
-        # Zuordnungen nur für Songs der neuen Runde behalten (bleibt so unter der Ladegrenze).
-        keys = {song.display_name.casefold() for song in songs}
-        self.audio_files = {key: path for key, path in self.audio_files.items() if key in keys}
+        self._limit_audio_files()
         # Neue Karten = neuer Abend: Gewinner gehören zu den alten Karten (liegen in der Sicherung).
         self.round_number = 1
         self.win_target = "reihe"
@@ -195,6 +193,24 @@ class GameService:
         if not isinstance(path, str) or not path.strip():
             raise ValueError("Bitte eine gültige Audiodatei auswählen.")
         self.audio_files[song.display_name.casefold()] = path
+        self._limit_audio_files()
+
+    def merge_audio_files(self, matched: dict[str, str]) -> int:
+        """Ordner-Zuordnung übernehmen; bleibt unter der Ladegrenze. Gibt die Zahl der verworfenen zurück."""
+        self.audio_files.update(matched)
+        return self._limit_audio_files()
+
+    def _limit_audio_files(self) -> int:
+        """Zuordnungen bleiben erhalten (auch für gerade nicht genutzte Songs) – nur bei mehr als
+        MAX_GAME_SONGS fallen die weg, die weder in der Runde noch in der Songliste stehen."""
+        if len(self.audio_files) <= MAX_GAME_SONGS:
+            return 0
+        before = len(self.audio_files)
+        wanted = {song.display_name.casefold() for song in self.game.songs}
+        wanted |= {song.display_name.casefold() for song in parse_songs(self.song_text)}
+        kept = {key: path for key, path in self.audio_files.items() if key in wanted}
+        self.audio_files = dict(list(kept.items())[:MAX_GAME_SONGS])
+        return before - len(self.audio_files)
 
     def to_dict(self) -> dict:
         return {

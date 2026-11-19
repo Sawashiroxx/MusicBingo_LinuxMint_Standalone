@@ -290,6 +290,8 @@ class PlaylistReader:
         self.tracks: list[PlayingTrack] = []
         self.seen: set[str] = set()
         self.first_identity = ""
+        self.second_identity = ""
+        self.checking_wrap = False  # erster Titel kam wieder: Ist es der Neuanfang oder ein Duplikat?
         self.duplicates = 0
         self.repeats_in_row = 0
         self.source = 0
@@ -332,7 +334,10 @@ class PlaylistReader:
         self._advance()
 
     def _record(self, identity: str, metadata: dict) -> None:
-        self.first_identity = self.first_identity or identity
+        if not self.first_identity:
+            self.first_identity = identity
+        elif not self.second_identity:
+            self.second_identity = identity
         self.repeats_in_row = 0
         self.seen.add(identity)
         track = track_from_metadata(metadata)
@@ -377,8 +382,21 @@ class PlaylistReader:
                 self.deadline = self._now_ms() + self.AD_WAIT_MS
                 return
             self.in_ad = False
+            if self.checking_wrap:
+                self.checking_wrap = False
+                if identity == self.second_identity:
+                    # Erster und zweiter Titel in derselben Folge wieder → Playlist beginnt von vorn
+                    self._finish("Playlist vollständig gelesen." + self._duplicate_note(), complete=True)
+                    return
+                self.duplicates += 1  # der erste Titel stand nur doppelt in der Playlist
             if identity == self.first_identity:
-                self._finish("Playlist vollständig gelesen." + self._duplicate_note(), complete=True)
+                if not self.second_identity:
+                    self._finish("Playlist vollständig gelesen.", complete=True)  # nur ein Titel
+                    return
+                # Nicht sofort aufhören: Steht der erste Titel mitten in der Playlist noch einmal,
+                # ginge sonst alles danach verloren. Erst der nächste Titel entscheidet.
+                self.checking_wrap = True
+                self._advance()
                 return
             if identity in self.seen:
                 # Doppelt in der Playlist (oder Player springt nicht zum Anfang zurück)
@@ -402,12 +420,19 @@ class PlaylistReader:
             self.retried = True
             self._advance()
         else:
+            if self.checking_wrap:  # Playlist endete mit einer Wiederholung des ersten Titels
+                self.checking_wrap = False
+                self.duplicates += 1
             self._finish("Playlist-Ende erreicht." + self._duplicate_note(), complete=True)
 
     def _duplicate_note(self) -> str:
         if not self.duplicates:
             return ""
-        return f" {self.duplicates} doppelte{'r' if self.duplicates == 1 else ''} Titel nur einmal übernommen."
+        times = "ein Titel kam" if self.duplicates == 1 else f"{self.duplicates} Titel kamen"
+        return (f" Hinweis: {times} mehrfach (doppelt in der Playlist oder Zufallswiedergabe an) "
+                "und wurde nur einmal übernommen." if self.duplicates == 1 else
+                f" Hinweis: {times} mehrfach (doppelt in der Playlist oder Zufallswiedergabe an) "
+                "und wurden nur einmal übernommen.")
 
     def _finish(self, reason: str, complete: bool) -> None:
         if self.finished:

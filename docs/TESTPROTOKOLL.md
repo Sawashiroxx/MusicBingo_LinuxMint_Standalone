@@ -1,15 +1,15 @@
 # Prüfprotokoll
 
-Stand: 19.11.2026 (v2.3) · Umgebung: Ubuntu 24.04 (= Basis Linux Mint 22), Python 3.12, GTK 3.24, Xvfb
+Stand: 19.11.2026 (v2.4) · Umgebung: Ubuntu 24.04 (= Basis Linux Mint 22), Python 3.12, GTK 3.24, Xvfb
 
 ## Automatisch (auch in der GitHub-Pipeline)
 
 | Suite | Tests | Ergebnis |
 |---|---|---|
-| Unit (inkl. Gewinngarantie, Prognose, Abend-Logik, Timer, Beamer-Inhalt) | 116 | ✅ |
-| Integration (Spotify-Simulation, GStreamer, Druck, Installer, Sicherungen, Release-Bau) | 34 | ✅ |
+| Unit (inkl. Gewinngarantie, Prognose, Abend-Logik, Timer, Beamer-Inhalt, Songliste-Fuzzing) | 124 | ✅ |
+| Integration (Spotify-/YouTube-Music-Simulation, GStreamer inkl. Netzwerksperre, Druck, Installer, Sicherungen, Release-Bau) | 43 | ✅ |
 | Sicherheit | 17 | ✅ |
-| GUI/E2E unter Xvfb (Gesamtablauf, Abend-Funktionen, Spotify, Grenzfälle, Kontrast, Fensterklasse, Screenshots) | 7 | ✅ |
+| GUI/E2E unter Xvfb (Gesamtablauf, Abend-Funktionen, Spotify, YouTube Music, Spotify-Rückfall, Grenzfälle, Kontrast, Fensterklasse, Screenshots) | 9 | ✅ |
 | ruff (Fehler, Bugs, bandit-Sicherheitsregeln), shellcheck | – | ✅ |
 
 ## Gewinngarantie (140 Gäste)
@@ -49,11 +49,25 @@ Belegt ohne Befund: Prognose stimmt für 3×3/4×4/5×5 mit/ohne Freifeld/Diagon
 Selbst gefunden: Release-ZIP hätte bei nicht committeten Änderungen neue Versionsnummer mit altem Inhalt bekommen.
 Nicht prüfbar: Platzierung auf einem echten zweiten Bildschirm (Testumgebung hat einen Monitor).
 
+## Prüfung v2.4 (YouTube Music, Prüfer: Claude Fable 5.2, zwei Durchgänge)
+
+1. Durchgang: 11 Befunde (keiner schwer), alle nachgestellt, behoben und mit Regressionstests abgesichert. Jeder neue Test schlägt mit dem alten Code fehl.
+- Song-Timer zog nach Ende von „Player folgen“ weiter Songs, die niemand gehört hat
+- Playlist einlesen brach bei doppelten Titeln oder gleichem Titel anderer Interpreten vorzeitig ab
+- YouTube-Music-Titel mit „ - “ wurden zerlegt
+- als .mp3 getarnte HLS-Playlist ließ GStreamer Daten aus dem Netz laden (Verstoß gegen „offline“)
+- unlesbarer Spielstand wurde beim Schließen ohne Kopie überschrieben
+- weitere: dritte Bingo-Prüfung, Warnung nach Markieren von Hand, Songliste im Editor, mehr als 2000 Songs, Statustext, Spotify-Rückfall
+
+2. Durchgang (Prüfung der Korrekturen): 9 von 11 bestätigt; Lücken behoben: YouTube Music im Browser ohne URL, erster Titel doppelt in der Playlist, Zuordnungen über „Ordner zuordnen“, gescheitertes Einschalten von „Player folgen“ stoppte den Timer, „#Abschnitt“-Zeilen bleiben Kommentare.
+Bewusst so belassen: Titel, die mit „# “ beginnen, werden im Editor als „＃ “ geschrieben; Gedankenstriche im Interpreten als Bindestrich.
+Nicht prüfbar: echte YouTube-Music-App, echter Browser (ob „Weiter“ und Titel-URL über MPRIS ankommen), echte Lautsprecher.
+
 ## Vor der Feier einmal von Hand (echter Rechner)
 
 1. `bash scripts/install-desktop.sh`, App über das Menü starten
 2. Karten erzeugen → *Drucken / PDF* → eine Seite prüfen
-3. Spotify-Desktop-App starten, Playlist abspielen → *Player folgen* → Song wird gezogen
+3. Spotify-Desktop-App bzw. YouTube Music (App oder music.youtube.com) starten, Playlist abspielen → *Player folgen* → Song wird gezogen; *Weiter* springt im Player zum nächsten Titel
 4. Einen Song ohne Folgen-Modus mit *Abspielen* in Spotify starten
 5. App schließen und neu öffnen → Stand ist erhalten
 6. Beamer anschließen, *Beamer öffnen* → Fenster erscheint im Vollbild auf dem Beamer, Titel verdeckt, T deckt auf

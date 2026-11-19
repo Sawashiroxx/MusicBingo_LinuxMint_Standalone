@@ -119,11 +119,19 @@ class WinnerTests(unittest.TestCase):
             service.assign_audio_file(song, f"/musik/{song.title}.mp3")
         restored = GameService.from_dict(copy.deepcopy(service.to_dict()))
         self.assertEqual(len(restored.game.songs), MAX_GAME_SONGS)
-        # Neue Runde mit anderer Liste: alte Zuordnungen fallen weg, Datei bleibt ladbar
+        # Zuordnungen bleiben über neue Runden erhalten …
         service.set_song_text("\n".join(f"Neu {i} – B" for i in range(30)) + "\nSong 1 – A")
         service.create_cards(5, True, 10)
-        self.assertEqual(list(service.audio_files), ["song 1 – a"])
+        self.assertEqual(len(service.audio_files), MAX_GAME_SONGS)
+        # … nur beim Überlauf fallen die nicht mehr benötigten weg (auch über „Ordner zuordnen“ ohne Karten)
+        dropped = service.merge_audio_files({f"neu {i} – b": f"/musik/neu{i}.mp3" for i in range(30)})
+        self.assertEqual(dropped, MAX_GAME_SONGS + 30 - 31)
+        self.assertEqual(set(service.audio_files), {f"neu {i} – b" for i in range(30)} | {"song 1 – a"})
         GameService.from_dict(service.to_dict())
+        fresh = GameService()
+        fresh.set_song_text("\n".join(f"T {i} – X" for i in range(MAX_GAME_SONGS + 1)))
+        fresh.merge_audio_files({f"t {i} – x": f"/m/{i}.mp3" for i in range(MAX_GAME_SONGS + 1)})
+        GameService.from_dict(fresh.to_dict())  # vorher: „Ungültige Audiozuordnungen im Spielstand.“
 
     def test_new_song_ends_manual_timer_pause(self):
         """Nach einem neuen Song stand sonst „Pausiert · noch 30 s“ und nichts lief weiter."""

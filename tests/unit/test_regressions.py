@@ -149,6 +149,10 @@ class FableReview24Tests(unittest.TestCase):
         self.assertEqual(parse_songs(format_songs([Song("X", "A – B")])), [Song("X", "A - B")])
         self.assertEqual(parse_songs("# Kommentar\n#\n## Abschnitt\n#SELFIE – The Chainsmokers"),
                          [Song("#SELFIE", "The Chainsmokers")])
+        # „#Abschnitt“ ohne Interpret bleibt Kommentar (bestehende Listen), Titel „#SELFIE“ übersteht den Editor
+        self.assertEqual(parse_songs("#Weihnachten\n#80er-Block\nLast Christmas – Wham!"),
+                         [Song("Last Christmas", "Wham!")])
+        self.assertEqual(parse_songs(format_songs([Song("#SELFIE")])), [Song("#SELFIE")])
 
     def test_editor_round_trip_fuzz_never_loses_or_splits_songs(self):
         # Realistische Namen: Wörter mit Bindestrich/Gedankenstrich dazwischen („Song - Live“, „A – B“)

@@ -319,7 +319,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         body.pack_start(columns, True, True, 0)
         song_frame, song_box = self._panel(
             "Songliste", "Pro Zeile: Titel – Interpret. Optional mit „ | “ und Spotify-/YouTube-Link. "
-                         "Zeilen mit # sind Kommentare. Doppelte Songs werden automatisch ignoriert.")
+                         "Zeilen mit # ohne „ – Interpret“ sind Kommentare. Doppelte Songs werden automatisch ignoriert.")
         columns.pack_start(song_frame, True, True, 0)
         self.song_view = Gtk.TextView()
         self.song_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
@@ -907,7 +907,10 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
                 dialogs.message(self, Gtk.MessageType.INFO, "Nichts übernommen",
                                 f"{reason}\n\nBis dahin gelesen: {len(tracks)} Titel." if tracks else reason)
                 return
-            clean = info.is_spotify or info.is_youtube_music_app
+            # Spotify und YouTube Music (App oder Browser-Tab mit music.youtube.com) liefern Titel und
+            # Interpret getrennt – nur YouTube-Videos im Browser brauchen das Zerlegen „Interpret - Titel“.
+            clean = (info.is_spotify or info.is_youtube_music_app
+                     or (info.is_browser and self.service.playback_target == "ytmusic"))
             cleaned = from_player_tracks(tracks, clean_metadata=clean).songs
             if not cleaned:
                 dialogs.message(self, Gtk.MessageType.WARNING, "Keine Titel eingelesen", reason)
@@ -935,9 +938,11 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         try:
             songs = self.service.game.songs or parse_songs(self._song_text())
             matched, unmatched = match_audio_files(songs, folder)
-            self.service.audio_files.update(matched)
+            dropped = self.service.merge_audio_files(matched)
             self._save()
             result = f"{len(matched)} Audiodateien zugeordnet · {len(unmatched)} Songs ohne eindeutigen Treffer"
+            if dropped:
+                result += f" · {dropped} alte Zuordnungen nicht mehr benötigter Songs entfernt"
             if self.audio_player is None:
                 result += " · Audioplayer auf diesem System nicht verfügbar"
             self._set_status(result)
@@ -1893,11 +1898,13 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             self._player_changed()
             self._set_status(f"Folge {self.player.info.identity}: laufende Songs werden automatisch gezogen.")
         else:
+            was_following = self.service.follow_player
             self.service.follow_player = False
             self._hide_warning()
             self._disconnect_player()
-            # Ohne Player würde der Timer sonst Songs ziehen, die niemand hört.
-            if self.timer.phase != "aus":
+            # Ohne Player würde der Timer sonst Songs ziehen, die niemand hört. Ein gescheiterter
+            # Einschaltversuch (kein Player) lässt einen normal laufenden Timer dagegen in Ruhe.
+            if was_following and self.timer.phase != "aus":
                 self.timer.stop()
                 self._set_status("Player folgen aus – Song-Timer angehalten.")
         self._save()

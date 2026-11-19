@@ -170,7 +170,24 @@ class MprisTests(unittest.TestCase):
         result, _ = self.read_playlist(loop=True, tracks=tracks)
         self.assertEqual([t.title for t in result["tracks"]], ["Song A", "Song B", "Song C", "Song D", "Song E"])
         self.assertTrue(result["complete"])
-        self.assertIn("1 doppelter Titel nur einmal übernommen", result["reason"])
+        self.assertIn("ein Titel kam mehrfach", result["reason"])
+
+    def test_first_track_duplicated_mid_playlist_does_not_truncate(self):
+        """Regression (Fable, 2. Prüfung): A B C D A E F → wurde bei der zweiten A beendet."""
+        def spotify(n):
+            return {"mpris:trackid": f"/com/spotify/track/{n * 22}", "xesam:title": f"Song {n}",
+                    "xesam:artist": [f"Artist {n}"]}
+        for loop, order in ((True, "ABCDAEF"), (False, "ABCDAEF"), (False, "ABCA"), (True, "ABA")):
+            with self.subTest(loop=loop, order=order):
+                result, _ = self.read_playlist(loop=loop, tracks=[spotify(n) for n in order])
+                expected = [f"Song {n}" for n in dict.fromkeys(order)]
+                self.assertEqual([t.title for t in result["tracks"]], expected)
+                self.assertTrue(result["complete"])
+                if order != "ABA":  # A B A | A B A: zwei gleiche hintereinander sehen aus wie kein Wechsel
+                    self.assertIn("ein Titel kam mehrfach", result["reason"])
+                for fake in self.fakes:
+                    fake.close()
+                self.fakes.clear()
 
     def test_reading_stops_when_player_never_returns_to_start(self):
         """Schutz vor Endlosschleife: Player wiederholt nur die letzten Titel."""

@@ -51,6 +51,7 @@ def scenario(w):
           and "Highway to Hell" in w.warning_label.get_text())
     # Regression: Song von Hand markiert → Warnung weg, „Überspringen“ kann ihn nicht mehr weiterschalten
     nexts = lambda: sum(call[0] == "Next" for call in state()["calls"])  # noqa: E731
+    pump(0.5)  # Statusdatei des simulierten Players wird alle 50 ms geschrieben – erst stabil werden lassen
     before = nexts()
     manual = next(song for song in w.service.game.caller.pool if song not in w.service.game.caller.drawn)
     w._take_song(manual, "von Hand")
