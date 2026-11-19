@@ -3,7 +3,7 @@ import json
 import subprocess
 import sys
 
-from common import (MESSAGES, ROOT, TMP, check, forbid_network, patch_dialogs, run, wait)
+from common import (MESSAGES, ROOT, TMP, check, forbid_network, patch_dialogs, pump, run, wait)
 
 LOG = TMP / "fake.json"
 FAKE = subprocess.Popen([sys.executable, str(ROOT / "tests" / "support" / "fake_player_process.py"), str(LOG),
@@ -45,12 +45,18 @@ def scenario(w):
 
     w._draw_next()
     check("Weiter → nächster Titel in der App", wait(lambda: drawn() == ["Wham!", "Mariah Carey"]))
-    check("Next an die App gesendet", any(call[0] == "Next" for call in state()["calls"]))
+    check("Next an die App gesendet", wait(lambda: any(call[0] == "Next" for call in state()["calls"])))
     w._draw_next()
     check("fremder Titel → Warnung", wait(lambda: w.warning_revealer.get_reveal_child())
           and "Highway to Hell" in w.warning_label.get_text())
-    w._skip_unmatched(None)
-    check("Überspringen blendet Warnung aus", wait(lambda: not w.warning_revealer.get_reveal_child()))
+    # Regression: Song von Hand markiert → Warnung weg, „Überspringen“ kann ihn nicht mehr weiterschalten
+    nexts = lambda: sum(call[0] == "Next" for call in state()["calls"])  # noqa: E731
+    before = nexts()
+    manual = next(song for song in w.service.game.caller.pool if song not in w.service.game.caller.drawn)
+    w._take_song(manual, "von Hand")
+    check("Markieren von Hand blendet Warnung aus", not w.warning_revealer.get_reveal_child())
+    pump(0.5)
+    check("kein Next nach dem Markieren", nexts() == before)
 
     saved = json.loads((TMP / "data" / "musik-bingo" / "spielstand.json").read_text())
     check("Ziel YouTube Music gespeichert", saved["settings"]["playback_target"] == "ytmusic")
@@ -76,10 +82,23 @@ def scenario(w):
     w.target_buttons["ytmusic"].set_active(True)
     w.follow_switch.set_active(True)
     check("erneut verbunden", w.player is not None)
+    w.auto_play_check.set_active(True)
+    w.timer_spin.set_value(2)
+    w.reveal_spin.set_value(0)
+    w._new_song_started()
+    check("Timer läuft im Folgen-Modus", w.timer.phase != "aus")
     FAKE.terminate()
     FAKE.wait()
     check("App beendet → Folgen aus, kein Absturz",
           wait(lambda: not w.follow_switch.get_active() and w.player is None, 6))
+    check("Warnung an die Spielleitung", "YouTube Music wurde beendet" in MESSAGES)
+    drawn_after = list(w.service.game.caller.drawn)
+    opened_after = len(opened)
+    pump(4.0)  # doppelt so lang wie der Timer
+    # Regression: Der Timer zog nach dem Verschwinden des Players weiter Songs und öffnete Browser-Tabs
+    check("Timer angehalten, nichts mehr gezogen",
+          w.timer.phase == "aus" and list(w.service.game.caller.drawn) == drawn_after)
+    check("keine Browser-Tabs geöffnet", len(opened) == opened_after)
     w.follow_switch.set_active(True)
     check("ohne Player: sauberer Hinweis",
           not w.follow_switch.get_active() and "Kein passender Player gefunden" in MESSAGES)

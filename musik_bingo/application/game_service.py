@@ -11,6 +11,9 @@ from musik_bingo.domain.evening import (
 )
 from musik_bingo.domain.song_list import format_songs, parse_songs
 
+# Obergrenze pro Runde – identisch mit der Prüfung beim Laden, sonst ließe sich ein
+# Spielstand speichern, der beim nächsten Start nicht mehr geladen werden kann.
+MAX_GAME_SONGS = 2000
 PLAYBACK_TARGETS = ("lokal", "spotify", "youtube", "ytmusic")
 
 
@@ -65,6 +68,8 @@ class GameService:
         if not isinstance(diagonal_wins, bool):
             raise ValueError("Die Diagonal-Regel muss wahr oder falsch sein.")
         songs = parse_songs(self.song_text)
+        if len(songs) > MAX_GAME_SONGS:
+            raise ValueError(f"Höchstens {MAX_GAME_SONGS} Songs pro Runde (die Liste hat {len(songs)}).")
         cards = generate_cards(songs, size, free_space, count)
         # Erst nach erfolgreicher Validierung den aktiven Spielstand ersetzen.
         self.game.songs = songs
@@ -78,6 +83,9 @@ class GameService:
         self.card_count = count
         self.diagonal_wins = diagonal_wins
         self.game.caller = Caller(songs)
+        # Zuordnungen nur für Songs der neuen Runde behalten (bleibt so unter der Ladegrenze).
+        keys = {song.display_name.casefold() for song in songs}
+        self.audio_files = {key: path for key, path in self.audio_files.items() if key in keys}
         # Neue Karten = neuer Abend: Gewinner gehören zu den alten Karten (liegen in der Sicherung).
         self.round_number = 1
         self.win_target = "reihe"
@@ -229,7 +237,7 @@ class GameService:
         if not isinstance(version, int) or isinstance(version, bool) or version != 1:
             raise ValueError("Diese Spielstand-Version wird nicht unterstützt.")
         raw_songs = data.get("songs", [])
-        if not isinstance(raw_songs, list) or len(raw_songs) > 2000:
+        if not isinstance(raw_songs, list) or len(raw_songs) > MAX_GAME_SONGS:
             raise ValueError("Ungültige Songliste im Spielstand.")
         songs = [Song.from_dict(item) for item in raw_songs]
         song_keys = [song.display_name.casefold() for song in songs]
@@ -309,7 +317,7 @@ class GameService:
         )
         service = cls(game)
         raw_audio_files = data.get("audio_files", {})
-        if not isinstance(raw_audio_files, dict) or len(raw_audio_files) > 2000:
+        if not isinstance(raw_audio_files, dict) or len(raw_audio_files) > MAX_GAME_SONGS:
             raise ValueError("Ungültige Audiozuordnungen im Spielstand.")
         if any(not isinstance(key, str) or not isinstance(path, str) for key, path in raw_audio_files.items()):
             raise ValueError("Audiozuordnung muss Titel und Dateipfad als Text enthalten.")

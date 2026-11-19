@@ -12,6 +12,7 @@ if MODE == "broken":
     SAVE.write_text('{"version": 1, "songs": "kaputt"}')
 elif MODE == "deep":
     SAVE.write_text("[" * 100_000 + "]" * 100_000)
+ORIGINAL = SAVE.read_bytes() if SAVE.exists() else b""
 forbid_network()
 patch_dialogs()
 
@@ -20,6 +21,10 @@ def scenario(w):
     if MODE in ("broken", "deep"):
         check(f"{MODE}: Warnung statt Absturz", "Spielstand konnte nicht geladen werden" in MESSAGES)
         check(f"{MODE}: App startet mit leerer Runde", not w.service.game.cards)
+        # Regression (Fable 2.4): unlesbare Datei wurde beim Schließen/ersten Klick ohne Kopie überschrieben
+        kept = sorted((SAVE.parent / "sicherungen").glob("unlesbar_*.json"))
+        check(f"{MODE}: unveränderte Kopie der unlesbaren Datei", len(kept) == 1
+              and kept[0].read_bytes() == ORIGINAL)
         w._generate(None)
         check(f"{MODE}: danach normal spielbar", len(w.service.game.cards) == 160)
     elif MODE == "defaults":

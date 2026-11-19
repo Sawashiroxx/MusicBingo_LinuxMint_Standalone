@@ -91,6 +91,52 @@ class WinnerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             svc.remove_winner(5)
 
+    def test_third_check_reports_same_stage_first(self):
+        """Regression (Fable 2.4): nach 1 Reihe + 2 Reihen meldete die 3. Prüfung erst „1 Reihe“,
+        die Rückfrage „trotzdem?“ endete dann in einer unbehandelten Ausnahme."""
+        winners = [Winner(1, "reihe", 7, "A", 16), Winner(1, "zwei_reihen", 7, "A", 30)]
+        with self.assertRaises(DuplicateWinner) as caught:
+            check_new_winner(winners, Winner(1, "zwei_reihen", 7, "", 31))
+        self.assertEqual(caught.exception.previous.target, "zwei_reihen")
+        with self.assertRaises(DuplicateWinner):
+            check_new_winner(winners, Winner(1, "zwei_reihen", 7, "", 31), allow_repeat=True)
+        # andere Stufe: ohne Freigabe Rückfrage (jüngster Eintrag), mit Freigabe erlaubt
+        with self.assertRaises(DuplicateWinner) as caught:
+            check_new_winner(winners, Winner(1, "volle_karte", 7, "", 63))
+        self.assertEqual(caught.exception.previous.target, "zwei_reihen")
+        check_new_winner(winners, Winner(1, "volle_karte", 7, "", 63), allow_repeat=True)
+
+    def test_song_limit_matches_load_limit(self):
+        """Regression (Fable 2.4): 2001 Songs ließen sich erzeugen und speichern, aber nicht laden."""
+        from musik_bingo.application.game_service import MAX_GAME_SONGS
+        service = GameService()
+        service.set_song_text("\n".join(f"Song {i} – A" for i in range(MAX_GAME_SONGS + 1)))
+        with self.assertRaisesRegex(ValueError, "Höchstens 2000 Songs"):
+            service.create_cards(5, True, 10)
+        service.set_song_text("\n".join(f"Song {i} – A" for i in range(MAX_GAME_SONGS)))
+        service.create_cards(5, True, 10)
+        for song in service.game.songs:
+            service.assign_audio_file(song, f"/musik/{song.title}.mp3")
+        restored = GameService.from_dict(copy.deepcopy(service.to_dict()))
+        self.assertEqual(len(restored.game.songs), MAX_GAME_SONGS)
+        # Neue Runde mit anderer Liste: alte Zuordnungen fallen weg, Datei bleibt ladbar
+        service.set_song_text("\n".join(f"Neu {i} – B" for i in range(30)) + "\nSong 1 – A")
+        service.create_cards(5, True, 10)
+        self.assertEqual(list(service.audio_files), ["song 1 – a"])
+        GameService.from_dict(service.to_dict())
+
+    def test_new_song_ends_manual_timer_pause(self):
+        """Nach einem neuen Song stand sonst „Pausiert · noch 30 s“ und nichts lief weiter."""
+        timer = SongTimer(30, 5)
+        timer.start()
+        timer.pause()
+        self.assertIsNone(timer.tick())
+        timer.start()
+        self.assertFalse(timer.paused)
+        self.assertEqual(timer.label(), "noch 30 s")
+        timer.tick()
+        self.assertEqual(timer.remaining, 29)
+
     def test_check_new_winner_limit(self):
         winners = [Winner(1, "reihe", i, "", 3) for i in range(1, 1001)]
         with self.assertRaisesRegex(ValueError, "voll"):

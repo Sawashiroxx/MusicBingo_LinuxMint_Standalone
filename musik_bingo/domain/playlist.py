@@ -192,18 +192,23 @@ def parse_playlist(text: str, filename: str = "", order: str = ORDER_AUTO) -> Im
     return parse_text(text, order)
 
 
-def from_player_tracks(tracks) -> ImportResult:
+def from_player_tracks(tracks, clean_metadata: bool = False) -> ImportResult:
     """Vom Player eingelesene Titel (Objekte mit title, artist, url) bereinigen.
 
-    Spotify liefert Titel und Interpret getrennt. YouTube im Browser liefert
-    meist „Interpret - Titel (Official Video)“ als Titel und den Kanal als
-    Interpret – dann wird der Titel zerlegt und der Kanalname verworfen.
+    Spotify und YouTube Music (App oder music.youtube.com) liefern Titel und
+    Interpret getrennt – ein „ - “ gehört dort zum Titel („Stille Nacht - Heilige
+    Nacht“), Versionszusätze entfernt clean_title. YouTube-Videos im Browser
+    liefern meist „Interpret - Titel (Official Video)“ als Titel und den Kanal als
+    Interpret – nur dann wird der Titel zerlegt und der Kanalname verworfen.
+    ``clean_metadata``: Der Player liefert sicher getrennte Felder (Spotify-/YouTube-Music-App).
     """
     collector = _Collector("Player")
     for track in tracks:
         title, artist, url = track.title or "", track.artist or "", track.url or ""
         link = normalize_link(url)
-        if not link.startswith("spotify:") and re.search(r"\s[-–—]\s", title):
+        separate_fields = (clean_metadata or link.startswith("spotify:")
+                           or url.strip().lower().startswith(("https://music.youtube.com/", "http://music.youtube.com/")))
+        if not separate_fields and re.search(r"\s[-–—]\s", title):
             title, artist = _split(title, ORDER_ARTIST_TITLE)
         collector.add(_make_song(title, artist, link), f"{title} {artist}")
     return collector.result

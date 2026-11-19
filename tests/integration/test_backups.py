@@ -30,6 +30,19 @@ class BackupTests(unittest.TestCase):
             self.assertEqual(stat.S_IMODE(backup.stat().st_mode) & 0o077, 0)
             self.assertEqual(stat.S_IMODE(store.backup_dir.stat().st_mode) & 0o077, 0)
 
+    def test_copy_of_unreadable_file_is_never_rotated_away(self):
+        with tempfile.TemporaryDirectory() as directory:
+            store = FileStore(Path(directory) / "spielstand.json")
+            store.path.write_text('{"version": 99}')
+            kept = store.backup("unlesbar", keep=True)
+            self.assertTrue(kept.name.startswith("unlesbar_"))
+            for i in range(MAX_BACKUPS + 3):
+                store.save(service(f"S{i}"))
+                store.backup(f"runde-{i}")
+            self.assertEqual(kept.read_text(), '{"version": 99}')
+            self.assertEqual(len(store.backups()), MAX_BACKUPS)
+            self.assertEqual(stat.S_IMODE(kept.stat().st_mode) & 0o077, 0)
+
     def test_rotation_and_safe_names(self):
         with tempfile.TemporaryDirectory() as directory:
             store = FileStore(Path(directory) / "spielstand.json")

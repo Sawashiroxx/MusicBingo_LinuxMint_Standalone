@@ -100,8 +100,12 @@ def track_identity(metadata: dict | None) -> str:
     if not metadata:
         return ""
     metadata = {key: _unpack(value) for key, value in metadata.items()}
+    artists = metadata.get("xesam:artist")
+    artist = ", ".join(str(item) for item in artists) if isinstance(artists, (list, tuple)) else str(artists or "")
+    # Interpret gehört dazu: Browser melden oft eine feste trackid und keine URL – sonst wäre
+    # „White Christmas“ von Bing Crosby und von Michael Bublé derselbe Eintrag.
     return "|".join(
-        str(metadata.get(key) or "") for key in ("mpris:trackid", "xesam:url", "xesam:title")
+        [*(str(metadata.get(key) or "") for key in ("mpris:trackid", "xesam:url", "xesam:title")), artist]
     )
 
 
@@ -262,9 +266,11 @@ class PlaylistReader:
     """Liest eine Playlist ein, indem sie im Player Titel für Titel weiterspringt.
 
     Ablauf: aktuellen Titel merken → „Weiter“ → asynchron warten, bis ein neuer
-    Titel gemeldet wird → … Ende, wenn ein Titel wieder auftaucht (Wiederholung),
+    Titel gemeldet wird → … Ende, wenn der erste Titel wieder auftaucht (Wiederholung),
     sich auch nach einem zweiten „Weiter“ nichts ändert (Ende ohne Wiederholung)
-    oder das Limit erreicht ist. Werbung wird abgewartet, nicht übersprungen.
+    oder das Limit erreicht ist. Taucht ein anderer Titel erneut auf, steht er doppelt in der
+    Playlist: Er wird nur einmal übernommen und gezählt, das Einlesen läuft weiter.
+    Werbung wird abgewartet, nicht übersprungen.
 
     ``on_done(tracks, reason, complete)``: ``complete`` ist False bei Abbruch oder
     Fehler – das Teilergebnis soll dann nicht übernommen werden.
@@ -283,6 +289,9 @@ class PlaylistReader:
         self.poll_ms = poll_ms
         self.tracks: list[PlayingTrack] = []
         self.seen: set[str] = set()
+        self.first_identity = ""
+        self.duplicates = 0
+        self.repeats_in_row = 0
         self.source = 0
         self.pending = False
         self.deadline = 0
@@ -323,6 +332,8 @@ class PlaylistReader:
         self._advance()
 
     def _record(self, identity: str, metadata: dict) -> None:
+        self.first_identity = self.first_identity or identity
+        self.repeats_in_row = 0
         self.seen.add(identity)
         track = track_from_metadata(metadata)
         if track is not None:
@@ -365,14 +376,19 @@ class PlaylistReader:
                 self.in_ad = True
                 self.deadline = self._now_ms() + self.AD_WAIT_MS
                 return
-            if self.in_ad:
-                self.in_ad = False
-                if identity not in self.seen:
-                    self._record(identity, metadata)
-                    self._advance()
-                    return
+            self.in_ad = False
+            if identity == self.first_identity:
+                self._finish("Playlist vollständig gelesen." + self._duplicate_note(), complete=True)
+                return
             if identity in self.seen:
-                self._finish("Playlist vollständig gelesen.", complete=True)
+                # Doppelt in der Playlist (oder Player springt nicht zum Anfang zurück)
+                self.duplicates += 1
+                self.repeats_in_row += 1
+                if self.repeats_in_row > len(self.seen):
+                    self._finish("Nur noch bekannte Titel – Einlesen beendet." + self._duplicate_note(),
+                                 complete=True)
+                    return
+                self._advance()
                 return
             self._record(identity, metadata)
             self._advance()
@@ -386,7 +402,12 @@ class PlaylistReader:
             self.retried = True
             self._advance()
         else:
-            self._finish("Playlist-Ende erreicht.", complete=True)
+            self._finish("Playlist-Ende erreicht." + self._duplicate_note(), complete=True)
+
+    def _duplicate_note(self) -> str:
+        if not self.duplicates:
+            return ""
+        return f" {self.duplicates} doppelte{'r' if self.duplicates == 1 else ''} Titel nur einmal übernommen."
 
     def _finish(self, reason: str, complete: bool) -> None:
         if self.finished:

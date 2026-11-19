@@ -90,12 +90,14 @@ class DuplicateWinner(ValueError):
 
 def check_new_winner(winners: list[Winner], candidate: Winner, allow_repeat: bool = False) -> None:
     """Verhindert, dass dieselbe Karte doppelt gewinnt (gleiche Stufe immer, sonst nur mit Freigabe)."""
-    for winner in winners:
-        if winner.card != candidate.card:
-            continue
-        same_stage = winner.round == candidate.round and winner.target == candidate.target
-        if same_stage or not allow_repeat:
+    earlier = [winner for winner in winners if winner.card == candidate.card]
+    # Gleiche Stufe zuerst melden – sie ist nie erlaubt. Sonst würde die Oberfläche bei einer
+    # dritten Prüfung erst „trotzdem eintragen?“ fragen und dann an dieser Stufe scheitern.
+    for winner in earlier:
+        if winner.round == candidate.round and winner.target == candidate.target:
             raise DuplicateWinner(winner)
+    if earlier and not allow_repeat:
+        raise DuplicateWinner(earlier[-1])
     if len(winners) >= MAX_WINNERS:
         raise ValueError("Die Gewinnerliste ist voll.")
 

@@ -668,9 +668,15 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         try:
             saved = self.store.load()
         except Exception as error:  # noqa: BLE001 – kaputte Datei darf den Start nie verhindern
+            # Erst sichern: Schon das Schließen der App würde die Datei sonst überschreiben.
+            try:
+                kept = self.store.backup("unlesbar", keep=True)
+                where = (f"Eine unveränderte Kopie liegt in:\n{kept}" if kept
+                         else "Es gab keine Datei zum Sichern.")
+            except OSError as backup_error:
+                where = f"Kopie konnte nicht angelegt werden: {backup_error}"
             dialogs.message(self, Gtk.MessageType.WARNING, "Spielstand konnte nicht geladen werden",
-                            f"{error}\n\nDie App startet mit einer neuen Runde. Die alte Datei bleibt "
-                            "unverändert, bis du etwas änderst.")
+                            f"{error}\n\nDie App startet mit einer neuen Runde. {where}")
             self.nav.select_row(self.nav.get_row_at_index(0))
             return
         if saved is None:
@@ -901,7 +907,8 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
                 dialogs.message(self, Gtk.MessageType.INFO, "Nichts übernommen",
                                 f"{reason}\n\nBis dahin gelesen: {len(tracks)} Titel." if tracks else reason)
                 return
-            cleaned = from_player_tracks(tracks).songs
+            clean = info.is_spotify or info.is_youtube_music_app
+            cleaned = from_player_tracks(tracks, clean_metadata=clean).songs
             if not cleaned:
                 dialogs.message(self, Gtk.MessageType.WARNING, "Keine Titel eingelesen", reason)
                 return
@@ -1229,6 +1236,9 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
 
     def _take_song(self, song: Song, status: str) -> None:
         if self.service.draw_song(song):
+            # Von Hand markiert: Die Warnung „nicht auf den Karten“ ist erledigt – sonst würde
+            # „Überspringen“ den gerade markierten Song im Player weiterschalten.
+            self._hide_warning()
             self._new_song_started()
             self._render_caller()
             self._save()
@@ -1339,7 +1349,11 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
                 "Trotzdem eintragen",
             ):
                 return
-            winner = self.service.add_winner(number, name, allow_repeat=True)
+            try:
+                winner = self.service.add_winner(number, name, allow_repeat=True)
+            except ValueError as error:  # z. B. Liste voll
+                dialogs.message(self, Gtk.MessageType.WARNING, "Nicht eingetragen", str(error))
+                return
         except ValueError as error:
             dialogs.message(self, Gtk.MessageType.WARNING, "Nicht eingetragen", str(error))
             return
@@ -1598,10 +1612,12 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
                 detail = ("Spotify-Desktop-App nicht gestartet – Titel werden über "
                           + ("die Spotify-App geöffnet." if self.spotify_scheme else "den Spotify-Webplayer im Browser geöffnet."))
             elif target == "ytmusic":
-                detail = ("Keine YouTube-Music-App/kein Browser-Tab erkannt – Titel öffnen sich in YouTube Music "
-                          "im Standardbrowser (dort mit Premium anmelden).")
+                # Ohne „Player folgen“ wird kein Player angesteuert – also nichts über erkannte Player behaupten.
+                detail = ("„Abspielen“ öffnet den Titel auf music.youtube.com im Standardbrowser (dort mit Premium "
+                          "anmelden). Für automatisches Mitziehen „Player folgen“ einschalten.")
             else:
-                detail = "YouTube öffnet sich im Standardbrowser."
+                detail = ("„Abspielen“ öffnet das Video im Standardbrowser. Für automatisches Mitziehen "
+                          "„Player folgen“ einschalten.")
             if follow:
                 detail = (f"Folgen aktiv: Die Playlist läuft in {self.player.info.identity if self.player else name}; "
                           "die App zieht den laufenden Song automatisch.")
@@ -1643,8 +1659,9 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         plan = plan_launch(song, target, spotify_mpris, self.spotify_scheme)
 
         def fallback(message: str) -> None:
+            # Spotify-App lehnte OpenUri ab: Titel über das System öffnen – ohne spotify:-Handler im Webplayer.
             try:
-                open_uri(song.link if self.spotify_scheme else plan.uri)
+                open_uri(plan_launch(song, "spotify", False, self.spotify_scheme).uri)
             except RuntimeError as error:
                 self._set_status(str(error))
                 return
@@ -1781,10 +1798,15 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
     def _player_vanished(self, *_args) -> None:
         name = self.player.info.identity if self.player else "Player"
         self._disconnect_player()
-        if self.follow_switch.get_active():
+        was_following = self.follow_switch.get_active()
+        if was_following:
             self.follow_switch.set_active(False)
         self._set_status(f"{name} wurde beendet – Player folgen ausgeschaltet.")
         self._render_caller()
+        if was_following:
+            dialogs.message(self, Gtk.MessageType.WARNING, f"{name} wurde beendet",
+                            "Player folgen und Song-Timer sind angehalten, es wird nichts mehr automatisch gezogen.\n"
+                            "Player neu starten, Playlist abspielen und „Player folgen“ wieder einschalten.")
 
     def _poll_player(self) -> bool:
         # Manche Player (v. a. Browser) melden Titelwechsel nicht zuverlässig.
@@ -1874,6 +1896,10 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             self.service.follow_player = False
             self._hide_warning()
             self._disconnect_player()
+            # Ohne Player würde der Timer sonst Songs ziehen, die niemand hört.
+            if self.timer.phase != "aus":
+                self.timer.stop()
+                self._set_status("Player folgen aus – Song-Timer angehalten.")
         self._save()
         self._render_caller()
 

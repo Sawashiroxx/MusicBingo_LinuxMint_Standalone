@@ -118,3 +118,58 @@ class SmallFixesTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FableReview24Tests(unittest.TestCase):
+    """Befunde der unabhängigen Prüfung von v2.4 (Fable)."""
+
+    def test_youtube_music_titles_with_dash_stay_intact(self):
+        tracks = [PlayingTrack("Stille Nacht - Heilige Nacht", "Helene Fischer",
+                               "https://music.youtube.com/watch?v=aAkMkVFwAoo"),
+                  PlayingTrack("Do They Know It's Christmas? - 1984 Version", "Band Aid",
+                               "https://music.youtube.com/watch?v=E8gmARGvPlI")]
+        songs = from_player_tracks(tracks).songs
+        self.assertEqual([(s.title, s.artist) for s in songs],
+                         [("Stille Nacht - Heilige Nacht", "Helene Fischer"),
+                          ("Do They Know It's Christmas?", "Band Aid")])
+        # YouTube-Music-App ohne URL: Felder sind trotzdem sauber getrennt
+        app = from_player_tracks([PlayingTrack("Stille Nacht - Heilige Nacht", "Helene Fischer")],
+                                 clean_metadata=True).songs[0]
+        self.assertEqual((app.title, app.artist), ("Stille Nacht - Heilige Nacht", "Helene Fischer"))
+        # YouTube-Video im Browser: weiterhin „Interpret - Titel“ zerlegen, Kanal verwerfen
+        video = from_player_tracks([PlayingTrack("Chris Rea - Driving Home For Christmas", "ChrisReaVEVO",
+                                                 "https://www.youtube.com/watch?v=aAkMkVFwAoo")]).songs[0]
+        self.assertEqual((video.title, video.artist), ("Driving Home For Christmas", "Chris Rea"))
+
+    def test_editor_round_trip_keeps_every_song(self):
+        cases = [Song("#SELFIE", "The Chainsmokers"), Song("Stille Nacht - Heilige Nacht"),
+                 Song("Old – Style"), Song("Rockin' Around - Live", "Brenda Lee"),
+                 Song("Song", "", "spotify:track:4uLU6hMCjMI75M1A2tKUQC")]
+        self.assertEqual(parse_songs(format_songs(cases)), cases)
+        self.assertEqual(parse_songs(format_songs([Song("X", "A – B")])), [Song("X", "A - B")])
+        self.assertEqual(parse_songs("# Kommentar\n#\n## Abschnitt\n#SELFIE – The Chainsmokers"),
+                         [Song("#SELFIE", "The Chainsmokers")])
+
+    def test_editor_round_trip_fuzz_never_loses_or_splits_songs(self):
+        # Realistische Namen: Wörter mit Bindestrich/Gedankenstrich dazwischen („Song - Live“, „A – B“)
+        rng = random.Random(2412)
+        words, dashes = ["a", "XY", "#b", "b|c", "Ü", "x-y"], ["-", "–", "—"]
+
+        def name(max_words):
+            parts = [rng.choice(words)]
+            for _ in range(rng.randint(0, max_words)):
+                if rng.random() < 0.4:
+                    parts.append(rng.choice(dashes))
+                parts.append(rng.choice(words))
+            return " ".join(parts)
+        for _ in range(3000):
+            title = name(4)
+            artist = name(2) if rng.random() < 0.7 else ""
+            song = Song(title, artist)
+            once = parse_songs(format_songs([song]))
+            self.assertEqual(len(once), 1, repr(song))
+            if not title.startswith("#"):
+                self.assertEqual(once[0].title, song.title, repr(song))
+            to_hyphen = str.maketrans("–—", "--")
+            self.assertEqual(once[0].artist.translate(to_hyphen), song.artist.translate(to_hyphen), repr(song))
+            self.assertEqual(parse_songs(format_songs(once)), once, repr(song))

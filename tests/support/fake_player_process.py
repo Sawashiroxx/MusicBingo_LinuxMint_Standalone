@@ -1,6 +1,6 @@
 """Startet einen simulierten MPRIS-Player als eigenen Prozess (für E2E-Tests).
 
-Aufruf: python3 fake_player_process.py <statusdatei> [spotify|ytmusic]
+Aufruf: python3 fake_player_process.py <statusdatei> [spotify|ytmusic|spotify-ohne-openuri]
 Schreibt laufend {"calls": [...], "pos": n} in die Statusdatei.
 """
 import json
@@ -19,12 +19,15 @@ KINDS = {
     "spotify": ("org.mpris.MediaPlayer2.spotify", "Spotify", TRACKS + [EXTRA]),
     "ytmusic": ("org.mpris.MediaPlayer2.youtube-music", "YouTube Music", YTMUSIC_TRACKS),
 }
+KINDS["spotify-ohne-openuri"] = KINDS["spotify"]
 
 
 def main() -> None:
     log = Path(sys.argv[1])
-    bus_name, identity, tracks = KINDS[sys.argv[2] if len(sys.argv) > 2 else "spotify"]
+    kind = sys.argv[2] if len(sys.argv) > 2 else "spotify"
+    bus_name, identity, tracks = KINDS[kind]
     fake = FakePlayer(os.environ["DBUS_SESSION_BUS_ADDRESS"], bus_name, list(tracks), True, identity)
+    fake.reject_open_uri = kind == "spotify-ohne-openuri"
 
     def dump() -> bool:
         temporary = log.with_suffix(".tmp")

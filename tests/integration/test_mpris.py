@@ -148,6 +148,40 @@ class MprisTests(unittest.TestCase):
         self.assertEqual(progress, [1, 2, 3])
         self.assertIn(("Pause", ()), self.fakes[0].calls)
 
+    def test_same_title_other_artist_in_browser_is_a_new_track(self):
+        """Regression: Browser (feste trackid, keine URL) – gleicher Titel, anderer Interpret."""
+        def browser(title, artist):
+            return {"mpris:trackid": "/org/mpris/MediaPlayer2/firefox", "xesam:title": title, "xesam:artist": [artist]}
+        tracks = [browser("White Christmas", "Bing Crosby"), browser("Last Christmas", "Wham!"),
+                  browser("White Christmas", "Michael Bublé"), browser("Driving Home for Christmas", "Chris Rea"),
+                  browser("Feliz Navidad", "José Feliciano")]
+        self.assertNotEqual(mpris.track_identity(tracks[0]), mpris.track_identity(tracks[2]))
+        result, _ = self.read_playlist(loop=True, tracks=tracks)
+        self.assertEqual([t.artist for t in result["tracks"]],
+                         ["Bing Crosby", "Wham!", "Michael Bublé", "Chris Rea", "José Feliciano"])
+        self.assertEqual(result["reason"], "Playlist vollständig gelesen.")
+
+    def test_duplicate_track_in_playlist_does_not_end_reading(self):
+        """Regression: [A, B, C, B, D, E] wurde als A, B, C „vollständig“ gemeldet."""
+        def spotify(n):
+            return {"mpris:trackid": f"/com/spotify/track/{n * 22}", "xesam:title": f"Song {n}",
+                    "xesam:artist": [f"Artist {n}"]}
+        tracks = [spotify(n) for n in "ABCBDE"]
+        result, _ = self.read_playlist(loop=True, tracks=tracks)
+        self.assertEqual([t.title for t in result["tracks"]], ["Song A", "Song B", "Song C", "Song D", "Song E"])
+        self.assertTrue(result["complete"])
+        self.assertIn("1 doppelter Titel nur einmal übernommen", result["reason"])
+
+    def test_reading_stops_when_player_never_returns_to_start(self):
+        """Schutz vor Endlosschleife: Player wiederholt nur die letzten Titel."""
+        def spotify(n):
+            return {"mpris:trackid": f"/com/spotify/track/{n * 22}", "xesam:title": f"Song {n}",
+                    "xesam:artist": [f"Artist {n}"]}
+        tracks = [spotify(n) for n in "ABC"] + [spotify(n) for n in "BC" * 6]
+        result, _ = self.read_playlist(loop=False, tracks=tracks)
+        self.assertEqual([t.title for t in result["tracks"]], ["Song A", "Song B", "Song C"])
+        self.assertTrue(result["complete"])
+
     def test_reads_playlist_until_end_without_repeat(self):
         result, _ = self.read_playlist(loop=False)
         self.assertEqual(len(result["tracks"]), 3)
