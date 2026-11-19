@@ -44,7 +44,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends $APT_BASE \
-            xvfb xauth dbus-x11 x11-utils poppler-utils librsvg2-common adwaita-icon-theme fonts-dejavu-core
+            xvfb xauth dbus-x11 x11-utils xdotool poppler-utils librsvg2-common adwaita-icon-theme fonts-dejavu-core
       - name: Unit-Tests
         run: /usr/bin/python3 -m unittest discover -v -s tests/unit -t .
       - name: Integrationstests

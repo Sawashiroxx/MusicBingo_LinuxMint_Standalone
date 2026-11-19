@@ -123,6 +123,7 @@ filechooser pathbar button:checked {{ background-color: {accent}; }}
 .history-chip {{ background-color: {surface2}; border: 1px solid {border}; border-radius: 10px; padding: 7px 11px; }}
 .warning-box {{ background-color: alpha({red}, 0.14); border: 1px solid {red}; border-radius: 12px; padding: 10px 14px; }}
 .warning-box label {{ color: {text}; }}
+.warning-text {{ color: {red}; font-weight: 600; }}
 .info-box {{ background-color: alpha({green}, 0.13); border: 1px solid {green}; border-radius: 12px; padding: 10px 14px; }}
 .statusbar {{ background-color: {surface}; border-top: 1px solid {border}; padding: 6px 16px; }}
 .statusbar label {{ color: {muted}; }}

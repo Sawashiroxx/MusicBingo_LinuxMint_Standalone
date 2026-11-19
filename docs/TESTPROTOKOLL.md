@@ -1,15 +1,15 @@
 # Prüfprotokoll
 
-Stand: 19.11.2026 (v2.4) · Umgebung: Ubuntu 24.04 (= Basis Linux Mint 22), Python 3.12, GTK 3.24, Xvfb
+Stand: 19.11.2026 (v2.4.1) · Umgebung: Ubuntu 24.04 (= Basis Linux Mint 22), Python 3.12, GTK 3.24, Xvfb
 
 ## Automatisch (auch in der GitHub-Pipeline)
 
 | Suite | Tests | Ergebnis |
 |---|---|---|
-| Unit (inkl. Gewinngarantie, Prognose, Abend-Logik, Timer, Beamer-Inhalt, Songliste-Fuzzing) | 124 | ✅ |
+| Unit (inkl. Gewinngarantie, Prognose, Abend-Logik, Timer, Beamer-Inhalt, Songliste-Fuzzing, Kartensuche) | 125 | ✅ |
 | Integration (Spotify-/YouTube-Music-Simulation, GStreamer inkl. Netzwerksperre, Druck, Installer, Sicherungen, Release-Bau) | 43 | ✅ |
 | Sicherheit | 17 | ✅ |
-| GUI/E2E unter Xvfb (Gesamtablauf, Abend-Funktionen, Spotify, YouTube Music, Spotify-Rückfall, Grenzfälle, Kontrast, Fensterklasse, Screenshots) | 9 | ✅ |
+| GUI/E2E unter Xvfb (Gesamtablauf, Abend-Funktionen, Spotify, YouTube Music, Spotify-Rückfall, echte Tastendrücke, Prüfen ohne Kartennummer, Grenzfälle, Kontrast, Fensterklasse, Screenshots) | 11 | ✅ |
 | ruff (Fehler, Bugs, bandit-Sicherheitsregeln), shellcheck | – | ✅ |
 
 ## Gewinngarantie (140 Gäste)
@@ -62,6 +62,10 @@ Nicht prüfbar: Platzierung auf einem echten zweiten Bildschirm (Testumgebung ha
 2. Durchgang (Prüfung der Korrekturen): 9 von 11 bestätigt; Lücken behoben: YouTube Music im Browser ohne URL, erster Titel doppelt in der Playlist, Zuordnungen über „Ordner zuordnen“, gescheitertes Einschalten von „Player folgen“ stoppte den Timer, „#Abschnitt“-Zeilen bleiben Kommentare.
 Bewusst so belassen: Titel, die mit „# “ beginnen, werden im Editor als „＃ “ geschrieben; Gedankenstriche im Interpreten als Bindestrich.
 Nicht prüfbar: echte YouTube-Music-App, echter Browser (ob „Weiter“ und Titel-URL über MPRIS ankommen), echte Lautsprecher.
+
+## v2.4.1: Meldung aus dem Einsatz
+
+Tastenkürzel wirkten nicht. Ursache: GTK schaltet bei jedem echten Tastendruck die Fokus-Anzeige ein; die App hielt den Seitenleisten-Eintrag deshalb für „per Tab angesteuert“ und gab ihm die Leertaste. Die bisherigen Tests riefen den Tasten-Handler direkt auf und konnten das nicht sehen. Neu: Test mit echten Tastendrücken über xdotool (schlägt mit dem alten Code fehl).
 
 ## Vor der Feier einmal von Hand (echter Rechner)
 

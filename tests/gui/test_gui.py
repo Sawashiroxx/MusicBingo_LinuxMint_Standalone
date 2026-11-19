@@ -37,6 +37,13 @@ class GuiTests(unittest.TestCase):
     def test_follow_spotify_end_to_end(self):
         self.scenario("follow_spotify.py")
 
+    def test_bingo_check_without_card_number(self):
+        self.scenario("ohne_nummer.py")
+
+    def test_shortcuts_with_real_keystrokes(self):
+        """Regression: Leertaste/T wirkten mit echten Tastendrücken nicht (nur im Direktaufruf)."""
+        self.scenario("tasten.py")
+
     def test_spotify_open_uri_fallback_uses_web_player(self):
         self.scenario("spotify_fallback.py")
 

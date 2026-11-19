@@ -1,5 +1,12 @@
 # Änderungsprotokoll
 
+## 2.4.1 – November 2026
+
+- Behoben: Tastenkürzel (Leertaste, T, P, Rücktaste) wirkten mit echten Tastendrücken nicht, sobald die
+  Seitenleiste den Fokus hatte (Meldung aus dem Einsatz). Neuer Test mit echten Tastendrücken (xdotool).
+- Neu: *Bingo prüfen → Ohne Kartennummer …* – Songs der Gewinnreihe anhaken; die App zeigt, ob sie
+  gespielt wurden, und findet die passende Karte (bevorzugt Karten mit erreichtem Gewinnziel).
+
 ## 2.4 – November 2026
 
 - YouTube Music als viertes Wiedergabeziel (neben lokalen Dateien, Spotify und YouTube): Titel bzw. Suche auf

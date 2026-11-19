@@ -112,12 +112,15 @@ def scenario(w):
     check("Gewinnziel umgestellt", w.service.win_target == "volle_karte")
     check("Gewinnziel in der Kopfzeile sichtbar", "Volle Karte" in w.rule_pill.get_text())
     before_switch = len(w.service.game.caller.drawn)
+    tab = Gdk.Event.new(Gdk.EventType.KEY_PRESS)
+    tab.keyval = Gdk.KEY_Tab
+    w._on_key(w, tab)  # Tastatur-Navigation beginnt
     w.follow_switch.grab_focus()
-    w.set_focus_visible(True)  # per Tab angesteuert
     event = Gdk.Event.new(Gdk.EventType.KEY_PRESS)
     event.keyval = Gdk.KEY_space
     check("Leertaste auf per Tab angesteuertem Schalter zieht keinen Song", not w._on_key(w, event)
           and len(w.service.game.caller.drawn) == before_switch)
+    w._on_pointer(w, None)  # Mausklick beendet die Tastatur-Navigation
     result = {}
     dialogs.bingo_check_dialog = lambda parent, count, rule: (1, "Oma")
     dialogs.bingo_result_dialog = lambda *args: result.update(reached=args[10], full=args[11], label=args[9])

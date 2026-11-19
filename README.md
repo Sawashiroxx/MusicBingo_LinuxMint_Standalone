@@ -17,7 +17,7 @@ Musik-Bingo für private Feiern als native Desktop-App (Python + GTK 3).
 - **Wiedergabe:** frei wählbar – lokale Dateien, Spotify (Desktop-App), YouTube (Browser) oder YouTube Music (Desktop-App oder Browser, z. B. mit Premium)
 - **Player folgen:** Playlist läuft in Spotify, YouTube oder YouTube Music, die App zieht den laufenden Song automatisch und warnt bei fremden Titeln
 - **Gewinnziel pro Runde:** 1 Reihe, 2 Reihen oder volle Karte – mit Spielprognose und Gewinngarantie
-- **Bingo prüfen:** zeigt die Karte mit gezogenen Feldern und Gewinnlinie, trägt Gewinner ein
+- **Bingo prüfen:** zeigt die Karte mit gezogenen Feldern und Gewinnlinie, trägt Gewinner ein – auch *ohne Kartennummer*: Songs der Gewinnreihe anhaken, die App findet die Karte
 - **Beamer-Ansicht:** zweites Fenster für die Gäste, Titel erst nach Aufdecken (T), Countdown, BINGO-Banner
 - **Song-Timer:** nach X Sekunden auflösen und automatisch weiter (P = Pause)
 - **Gewinnerliste & Runden:** 1 Reihe → 2 Reihen → Volle Karte → neue Runde; keine Karte gewinnt doppelt
@@ -44,7 +44,7 @@ Optional für lokale Musikdateien: `python3-gst-1.0`.
 
 1. **Songs & Playlist:** Liste importieren oder Zufallsmix erstellen → *Karten erzeugen*
 2. **Bingokarten:** *Drucken / PDF*
-3. **Spielleitung:** *Beamer öffnen*, Song-Timer einstellen, ziehen (Leertaste) oder *Player folgen* → *Bingo prüfen* → *Als Gewinner eintragen* → *Weiter: 2 Reihen* …
+3. **Spielleitung:** *Beamer öffnen*, Song-Timer einstellen, ziehen (Leertaste, T = Titel aufdecken, P = Timer-Pause, Rücktaste = zurück) oder *Player folgen* → *Bingo prüfen* → *Als Gewinner eintragen* → *Weiter: 2 Reihen* …
 
 **Für ~140 Gäste** (Standardwerte): 75 Songs, 5×5 mit Freifeld, 160 Karten drucken. Ob 120 oder 170 kommen, ändert den Ablauf kaum.
 
