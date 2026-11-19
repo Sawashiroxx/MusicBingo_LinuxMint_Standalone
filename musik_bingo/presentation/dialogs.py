@@ -370,15 +370,15 @@ def bingo_result_dialog(parent: Gtk.Window, card: BingoCard, number: int, name: 
     for index in range(size * size):
         is_free = free and index == size * size // 2
         text = "★ FREI" if is_free else next(songs).display_name
-        cell = label(text, "cell", wrap=True, xalign=0.5)
+        cell = label(text, "bingo-cell", wrap=True, xalign=0.5)
         cell.set_justify(Gtk.Justification.CENTER)
         cell.set_size_request(96, 52)
         cell.set_max_width_chars(14)
         if is_free:
-            add_class(cell, "cell-free")
+            add_class(cell, "bingo-cell-free")
         elif text.casefold() in drawn_keys:
             hits += 1
-            add_class(cell, "cell-line" if index in winning_cells else "cell-hit")
+            add_class(cell, "bingo-cell-line" if index in winning_cells else "bingo-cell-hit")
         grid.attach(cell, index % size, index // size, 1, 1)
     content.pack_start(frame, False, False, 0)
     content.pack_start(label(f"{hits} gezogene Songs auf dieser Karte · grün = gezogen · gold = Gewinnlinie",

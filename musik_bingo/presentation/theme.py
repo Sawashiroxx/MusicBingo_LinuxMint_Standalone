@@ -41,8 +41,8 @@ label {{ color: {text}; }}
 .pool-warning {{ color: {red}; font-weight: 700; }}
 
 /* Seitenleiste */
-.sidebar {{ background-color: {surface}; border-right: 1px solid {border}; }}
-.sidebar list, .sidebar row {{ background-color: transparent; }}
+.app-sidebar {{ background-color: {surface}; border-right: 1px solid {border}; }}
+.app-sidebar list, .app-sidebar row {{ background-color: transparent; }}
 .nav-row {{ border-radius: 12px; margin: 3px 10px; padding: 10px 12px; }}
 .nav-row:hover {{ background-color: {surface2}; }}
 .nav-row:selected, .nav-row:selected:hover {{ background-color: {selection}; }}
@@ -107,6 +107,14 @@ popover modelbutton:hover {{ background-color: {surface2}; }}
 tooltip, tooltip.background {{ background-color: {raised}; color: {text}; border-radius: 8px; }}
 tooltip label {{ color: {text}; }}
 list, row {{ background-color: transparent; }}
+treeview.view {{ background-color: {surface}; color: {text}; }}
+treeview.view:hover {{ background-color: {surface2}; }}
+treeview.view:selected, treeview.view:selected:focus {{ background-color: {accent}; color: {accent_text}; }}
+treeview.view header button {{ background-color: {surface2}; color: {muted}; border-radius: 0;
+  border-width: 0 1px 1px 0; border-color: {border}; padding: 4px 8px; }}
+treeview.view header button label {{ color: {muted}; font-weight: 700; }}
+placessidebar row label, filechooser label {{ color: {text}; }}
+filechooser pathbar button:checked {{ background-color: {accent}; }}
 .pool-row {{ border-radius: 9px; padding: 2px 4px; }}
 .pool-row:hover {{ background-color: {surface2}; }}
 .pool-drawn label.name {{ color: {muted}; }}
@@ -126,13 +134,13 @@ scrollbar {{ background-color: transparent; border: none; }}
 .bingo-card label {{ color: {card_text}; }}
 .card-head {{ background-color: {hero1}; border-radius: 9px; padding: 6px 10px; }}
 .card-head label {{ color: #ffffff; font-weight: 800; }}
-.cell {{ background-color: {cell}; border: 1px solid {cell_border}; border-radius: 6px; padding: 6px 3px; font-size: 0.82em; }}
-.cell-free {{ background-color: {free}; border-color: #d9bd6a; }}
-.cell-free label, label.cell-free {{ color: {free_text}; font-weight: 800; }}
-.cell-hit {{ background-color: #2e8b57; border-color: #2e8b57; }}
-.cell-hit label, label.cell-hit {{ color: #ffffff; font-weight: 700; }}
-.cell-line {{ background-color: {accent}; border-color: {accent}; }}
-.cell-line label, label.cell-line {{ color: #1a1406; font-weight: 800; }}
+label.bingo-cell {{ background-color: {cell}; border: 1px solid {cell_border}; border-radius: 6px; padding: 6px 3px; font-size: 0.82em; }}
+.bingo-cell-free {{ background-color: {free}; border-color: #d9bd6a; }}
+.bingo-cell-free label, label.bingo-cell-free {{ color: {free_text}; font-weight: 800; }}
+.bingo-cell-hit {{ background-color: #2e8b57; border-color: #2e8b57; }}
+.bingo-cell-hit label, label.bingo-cell-hit {{ color: #ffffff; font-weight: 700; }}
+.bingo-cell-line {{ background-color: {accent}; border-color: {accent}; }}
+.bingo-cell-line label, label.bingo-cell-line {{ color: #1a1406; font-weight: 800; }}
 dialog .dialog-vbox, messagedialog .dialog-vbox, dialog box, messagedialog box {{ background-color: transparent; }}
 dialog headerbar, messagedialog headerbar {{ border-bottom: none; }}
 """

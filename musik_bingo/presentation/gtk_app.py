@@ -182,7 +182,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self._apply_theme()
 
     def _build_sidebar(self) -> Gtk.Widget:
-        sidebar = add_class(Gtk.Box(orientation=Gtk.Orientation.VERTICAL), "sidebar")
+        sidebar = add_class(Gtk.Box(orientation=Gtk.Orientation.VERTICAL), "app-sidebar")
         sidebar.set_size_request(250, -1)
         brand = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
         brand.set_margin_start(22)
@@ -871,6 +871,8 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
                 "Neue Karten erzeugen",
             ):
                 return
+            if self.service.game.cards:
+                self._backup("vor-neuen-karten")
             self.service.set_song_text(song_text)
             cards = self.service.create_cards(size, free_space, count, self.diagonal_check.get_active())
             self._stop_all_playback()
@@ -891,6 +893,10 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
     def _update_forecast(self) -> None:
         """Spielprognose für die aktuelle Runde (wann gibt es die ersten Gewinner?)."""
         self.forecast_text = ""
+        for widget in (getattr(self, "forecast_label", None), getattr(self, "cards_forecast", None)):
+            if widget is not None:
+                widget.set_text("")
+                widget.set_tooltip_text(None)
         if not self.service.game.cards:
             return
         try:
@@ -903,7 +909,8 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             f"{WIN_TARGET_LABELS[key]}: meist bei Song {stage.early}–{stage.late}, spätestens {stage.worst}, "
             f"Ø {stage.winners:.1f} Gewinner gleichzeitig" for key, stage in result.stages.items())
         tooltip += (f"\n\nGarantie: Spätestens nach allen {result.pool_size} Songs hat jede Karte "
-                    "„Volle Karte“ – es gibt immer einen Gewinner, solange alle Songs der Liste gespielt werden.")
+                    "„Volle Karte“. Voraussetzung: Die Playlist enthält wirklich alle Songs der Karten – "
+                    "vorher „Mit Playlist abgleichen“ nutzen.")
         for widget in (getattr(self, "forecast_label", None), getattr(self, "cards_forecast", None)):
             if widget is not None:
                 widget.set_text(self.forecast_text)
@@ -935,14 +942,14 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             songs = iter(card.songs)
             for index in range(size * size):
                 is_free = free and index == size * size // 2
-                cell = label("★ FREI" if is_free else next(songs).display_name, "cell", wrap=True, xalign=0.5)
+                cell = label("★ FREI" if is_free else next(songs).display_name, "bingo-cell", wrap=True, xalign=0.5)
                 cell.set_justify(Gtk.Justification.CENTER)
                 cell.set_lines(4)
                 cell.set_ellipsize(Pango.EllipsizeMode.END)
                 cell.set_max_width_chars(10)
                 cell.set_size_request(cell_width, 54)
                 if is_free:
-                    add_class(cell, "cell-free")
+                    add_class(cell, "bingo-cell-free")
                 grid.attach(cell, index % size, index // size, 1, 1)
             frame.pack_start(grid, True, True, 0)
             self.cards_flow.add(frame)
@@ -1062,7 +1069,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.progress.set_fraction(count / total if total else 0)
         if self.service.game.cards:
             rule = "Reihen & Spalten" + (" & Diagonalen" if self.service.game.diagonal_wins else "")
-            self.rule_pill.set_text(f"Gewinnregel: {rule}")
+            self.rule_pill.set_text(f"Ziel: {WIN_TARGET_LABELS[self.service.win_target]} · {rule}")
         else:
             self.rule_pill.set_text("Noch keine Runde")
         self.pool_meta.set_text(f"{total} Songs · {count} gezogen · {total - count} offen")
@@ -1187,6 +1194,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             return
         self.service.set_win_target(key)
         self._save()
+        self._render_caller()
         self._set_status(f"Gewinnziel: {WIN_TARGET_LABELS[key]}")
 
     def _target_changed(self, button: Gtk.RadioButton, key: str) -> None:
@@ -1544,6 +1552,11 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         needed = required_songs(size, free_space)
         requested = self.count_spin.get_value_as_int()
         linked = sum(1 for song in songs if song.link)
+        from musik_bingo.domain.text import normalize
+        seen_titles: dict[str, int] = {}
+        for song in songs:
+            seen_titles[normalize(song.title)] = seen_titles.get(normalize(song.title), 0) + 1
+        same_titles = [song.title for song in songs if seen_titles[normalize(song.title)] > 1]
         link_text = f" · {linked} mit Link" if linked else ""
         if len(songs) < needed:
             message = f"{len(songs)} Songs · {needed} nötig · {needed - len(songs)} fehlen"
@@ -1557,6 +1570,10 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
                 combinations = "sehr viele" if possible >= 10**6 else f"{possible}"
                 message = f"✓ {len(songs)} Songs{link_text} · {needed} je Karte · {combinations} Kombinationen"
                 style = "pool-ready"
+        if same_titles and style == "pool-ready":
+            unique = sorted(set(same_titles), key=str.casefold)
+            message += f" · ⚠ gleicher Titel mehrfach: {', '.join(unique[:3])} – für Gäste kaum unterscheidbar"
+            style = "pool-warning"
         context = self.pool_count_label.get_style_context()
         context.remove_class("pool-ready")
         context.remove_class("pool-warning")
@@ -1607,6 +1624,15 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.service.diagonal_wins = self.diagonal_check.get_active()
         self.service.auto_play = self.auto_play_check.get_active()
         self._save()
+
+    def _backup(self, reason: str) -> None:
+        try:
+            self._save()
+            target = self.store.backup(reason)
+            if target:
+                self._set_status(f"Sicherung angelegt: {target.name}")
+        except OSError as error:
+            self._set_status(f"Sicherung fehlgeschlagen: {error}")
 
     def _save(self) -> None:
         try:
@@ -1664,6 +1690,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             return
         try:
             imported = self.store.import_from(filename)
+            self._backup("vor-import")
         except Exception as error:  # noqa: BLE001 – z. B. RecursionError bei manipulierter JSON
             dialogs.message(self, Gtk.MessageType.ERROR, "Import fehlgeschlagen", str(error))
             return
@@ -1712,6 +1739,9 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             ("Datenschutz", [
                 "Die App stellt selbst keine Internetverbindung her und überträgt keine Daten.",
                 "Spielstand: ~/.local/share/musik-bingo/spielstand.json (nur lokal).",
+                "Vor neuen Karten oder einem Import wird automatisch gesichert: "
+                "~/.local/share/musik-bingo/sicherungen/ (die letzten 10). Wiederherstellen über "
+                "Menü → Spielstand importieren.",
                 "Spotify/YouTube werden nur über die lokale Player-Schnittstelle (MPRIS) gesteuert oder per "
                 "Klick im Browser geöffnet – wie ein selbst angeklickter Link.",
                 "Chart- und Weihnachtslisten sind fest in der App gespeichert (Stand KW 47/2026).",
@@ -1733,7 +1763,9 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             self._toggle_fullscreen()
             return True
         focus = self.get_focus()
-        if isinstance(focus, (Gtk.TextView, Gtk.Entry, Gtk.SpinButton, Gtk.ComboBox, Gtk.Button)):
+        # Leertaste/Rücktaste gehören dem fokussierten Bedienelement (Knopf, Schalter, Regler, Eingabe).
+        if isinstance(focus, (Gtk.TextView, Gtk.Entry, Gtk.SpinButton, Gtk.ComboBox, Gtk.Button,
+                              Gtk.Switch, Gtk.Range, Gtk.ListBoxRow, Gtk.FlowBoxChild, Gtk.ModelButton)):
             return False
         if self.stack.get_visible_child_name() != "game":
             return False
@@ -1763,6 +1795,4 @@ class MusikBingoApplication(Gtk.Application):
 
 
 def main() -> int:
-    # Fensterklasse = Desktop-Eintrag (StartupWMClass), damit Taskleiste und Icon zusammenpassen.
-    GLib.set_prgname("de.weihnachtsfeier.musikbingo")
     return MusikBingoApplication().run(sys.argv)

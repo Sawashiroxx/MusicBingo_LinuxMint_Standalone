@@ -91,6 +91,16 @@ def random_mix(
 
     xmas = dedupe(christmas_pool, set())
     charts = dedupe(chart_pool, {mix_key(song) for song in xmas})
+    # Gleicher Titel von verschiedenen Interpreten („Last Christmas“ von Wham! und
+    # Taylor Swift) ist für Gäste nicht unterscheidbar: nur eine Version zulassen.
+    titles: set[str] = set()
+    distinct = []
+    for song in xmas + charts:
+        if mix_key(song)[0] not in titles:
+            titles.add(mix_key(song)[0])
+            distinct.append(song)
+    xmas = [song for song in distinct if song in xmas]
+    charts = [song for song in distinct if song not in xmas]
     want_xmas = (total * christmas_percent + 50) // 100  # kaufmännisch runden
     want_charts = total - want_xmas
     take_xmas = min(want_xmas, len(xmas))

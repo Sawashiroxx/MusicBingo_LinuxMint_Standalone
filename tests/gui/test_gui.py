@@ -38,6 +38,17 @@ class GuiTests(unittest.TestCase):
             with self.subTest(mode=mode):
                 self.scenario("edge_cases.py", mode)
 
+    @unittest.skipUnless(shutil.which("xprop"), "xprop (x11-utils) fehlt")
+    def test_window_class_matches_desktop_entry(self):
+        """Die Taskleiste ordnet das Fenster nur bei passender WM_CLASS dem Menüeintrag zu."""
+        self.scenario("window_class.py")
+
+    def test_table_text_is_readable_in_both_themes(self):
+        """Regression: Dateidialog war im dunklen Design unlesbar (weiße Zellen, heller Text)."""
+        for theme in ("dark", "light"):
+            with self.subTest(theme=theme):
+                self.scenario("contrast.py", theme)
+
     def test_screenshots_render_in_both_themes(self):
         target = Path(os.environ.get("SCREENSHOT_DIR") or tempfile.mkdtemp(prefix="screens-"))
         for theme in ("dark", "light"):
