@@ -10,7 +10,7 @@ musik_bingo/
 ├── application/      Spielzustand (GameService), Speichern/Laden-Format
 ├── infrastructure/   Dateien, GStreamer, MPRIS/D-Bus, Links öffnen
 ├── presentation/     GTK-Fenster, Dialoge, Theme, Druck (Cairo)
-├── data/             Startliste, Kataloge (catalogs/), Icon (icons/)
+├── data/             Startliste, Kataloge (catalogs/), Icons (icons/hicolor/)
 └── paths.py          zentrale Pfade zu data/
 ```
 
@@ -26,6 +26,7 @@ musik_bingo/
 | `domain/playlist.py` | Import CSV/M3U/Text/Player, Export Text/CSV/M3U |
 | `domain/matching.py` | Laufenden Titel einem Song zuordnen, Playlist-Abgleich |
 | `domain/card_generator.py` | Karten erzeugen, Gewinnlinien prüfen |
+| `domain/forecast.py` | Gewinnziele, Spielprognose (wann gibt es Gewinner?), Gewinngarantie |
 | `domain/caller.py` | Ziehreihenfolge, ziehen, Song gezielt ziehen, zurück, mischen |
 | `application/game_service.py` | Zustand, Einstellungen, JSON-Format mit Validierung |
 | `infrastructure/file_store.py` | Atomisches Speichern unter `$XDG_DATA_HOME/musik-bingo/` |
@@ -38,6 +39,8 @@ musik_bingo/
 
 - **Karten:** Feldzahl = Größe² − Freifeld (nur bei ungerader Größe). Kombinationen werden vorab mit `math.comb` geprüft; keine doppelten Karten; max. 500.
 - **Runde vs. Entwurf:** Die Songliste im Editor ändert eine laufende Runde nie. Erst *Karten erzeugen* startet eine neue Runde.
+- **Gewinngarantie:** Steht jeder Kartensong im gespielten Pool, ist spätestens nach dem letzten Song jede Karte voll – es gibt immer einen Gewinner. `guarantee()` prüft das nach dem Erzeugen.
+- **Prognose:** Pro simuliertem Spiel genügt die Ziehposition jedes Songs: Eine Linie ist voll beim Maximum ihrer Felder. 200 Spiele mit 160 Karten dauern < 0,5 s. Tests vergleichen das Ergebnis exakt mit Song-für-Song-Nachspielen.
 - **Song-Identität:** Titel + Interpret (ohne Groß-/Kleinschreibung). Der Link gehört nicht dazu.
 - **Zuordnung (Folgen-Modus):** Spotify-ID → Titel + Interpret → eindeutiger Titel. Mehrdeutiges wird nicht geraten, unbekannte Titel werden nie gezogen, Werbung wird ignoriert.
 - **Abspielen:** Spotify-Link + laufende App → MPRIS `OpenUri`; sonst `spotify:`-Schema → Webplayer/Suche. YouTube → Browser.

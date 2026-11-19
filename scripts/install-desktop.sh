@@ -6,11 +6,16 @@ set -euo pipefail
 PROJEKT_ORDNER="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 DATEN_ORDNER="${XDG_DATA_HOME:-${HOME}/.local/share}"
 APP_ORDNER="${DATEN_ORDNER}/applications"
-ICON_ORDNER="${DATEN_ORDNER}/icons/hicolor/scalable/apps"
+ICON_ZIEL="${DATEN_ORDNER}/icons/hicolor"
 DESKTOP_DATEI="${APP_ORDNER}/musik-bingo.desktop"
 
-mkdir -p "$APP_ORDNER" "$ICON_ORDNER"
-install -m 644 "$PROJEKT_ORDNER/musik_bingo/data/icons/musik-bingo.svg" "$ICON_ORDNER/musik-bingo.svg"
+mkdir -p "$APP_ORDNER"
+# Icon in allen Größen (PNG + SVG) in das Benutzer-Icon-Thema kopieren
+ICON_QUELLE="$PROJEKT_ORDNER/musik_bingo/data/icons/hicolor"
+for ICON in "$ICON_QUELLE"/*/apps/musik-bingo.*; do
+  GROESSE="$(basename "$(dirname "$(dirname "$ICON")")")"
+  install -D -m 644 "$ICON" "$ICON_ZIEL/$GROESSE/apps/$(basename "$ICON")"
+done
 
 # Pfad für die Exec-Zeile nach Desktop-Entry-Spezifikation maskieren. Werte werden
 # erst als String (\\ → \) und dann nach Anführungsregeln (\" \` \$ \\) gelesen,

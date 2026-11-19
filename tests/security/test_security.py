@@ -279,9 +279,8 @@ class DesktopEntryInjectionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             evil = Path(tmp) / 'Feier $(touch PWNED) `touch PWNED2` "x" 100% \\ ;touch PWNED3'
             (evil / "scripts").mkdir(parents=True)
-            (evil / "musik_bingo" / "data" / "icons").mkdir(parents=True)
+            shutil.copytree(ROOT / "musik_bingo" / "data" / "icons", evil / "musik_bingo" / "data" / "icons")
             shutil.copy(ROOT / "scripts" / "install-desktop.sh", evil / "scripts")
-            shutil.copy(ROOT / "musik_bingo" / "data" / "icons" / "musik-bingo.svg", evil / "musik_bingo" / "data" / "icons")
             marker = Path(tmp) / "gestartet"
             (evil / "scripts" / "starten.sh").write_text(f'#!/bin/bash\necho "$0" > "{marker}"\n')
             data_home = Path(tmp) / "share"

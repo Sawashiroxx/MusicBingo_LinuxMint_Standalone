@@ -1,4 +1,6 @@
-# 🎵 Musik Bingo · Linux Mint
+<p align="center"><img src="docs/logo.png" width="128" alt="Musik Bingo"></p>
+
+# Musik Bingo · Linux Mint
 
 Musik-Bingo für private Feiern als native Desktop-App (Python + GTK 3).
 **Offline:** Die App selbst baut keine Internetverbindung auf.
@@ -12,6 +14,7 @@ Musik-Bingo für private Feiern als native Desktop-App (Python + GTK 3).
 - **Bingo = Playlist:** Export als Playlist, Abgleich Karten ↔ Playlist
 - **Wiedergabe:** lokale Dateien, Spotify-Desktop-App oder YouTube im Browser
 - **Player folgen:** Playlist läuft in Spotify/YouTube, die App zieht den laufenden Song automatisch und warnt bei fremden Titeln
+- **Gewinnziel pro Runde:** 1 Reihe, 2 Reihen oder volle Karte – mit Spielprognose und Gewinngarantie
 - **Bingo prüfen:** zeigt die Karte mit gezogenen Feldern und Gewinnlinie
 
 ## Installation
@@ -32,6 +35,16 @@ Optional für lokale Musikdateien: `python3-gst-1.0`.
 1. **Songs & Playlist:** Liste importieren oder Zufallsmix erstellen → *Karten erzeugen*
 2. **Bingokarten:** *Drucken / PDF*
 3. **Spielleitung:** Wiedergabe wählen → ziehen (Leertaste) oder *Player folgen* → *Bingo prüfen*
+
+**Für ~140 Gäste** (Standardwerte): 75 Songs, 5×5 mit Freifeld, 160 Karten drucken. Ob 120 oder 170 kommen, ändert den Ablauf kaum.
+
+| Gewinnziel | erster Gewinner typischerweise nach |
+|---|---|
+| 1 Reihe | ~16 Songs |
+| 2 Reihen | ~30 Songs |
+| Volle Karte | ~63 Songs (≈ 1 Stunde) |
+
+Spätestens nach dem letzten Song hat jede Karte „Volle Karte“ – es gibt also immer einen Gewinner, solange alle Songs der Liste gespielt werden (*Mit Playlist abgleichen* prüft das).
 
 **Tipp für Spotify:** Playlist in Spotify anlegen, mit [Exportify](https://exportify.app) als CSV exportieren, dann *Playlist importieren*. So stehen genau die Playlist-Titel mit Spotify-Links auf den Karten.
 
