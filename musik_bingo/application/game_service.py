@@ -1,9 +1,14 @@
 from dataclasses import dataclass, field
 
+from musik_bingo.application.song_timer import SongTimer
+
 from musik_bingo.domain.caller import Caller
 from musik_bingo.domain.card_generator import generate_cards, required_songs, winning_lines
 from musik_bingo.domain.models import BingoCard, Song
 from musik_bingo.domain.forecast import WIN_TARGETS, Forecast, Guarantee, card_status, forecast, guarantee, target_reached
+from musik_bingo.domain.evening import (
+    DEFAULT_TITLE, MAX_NAME_LENGTH, MAX_WINNERS, Winner, check_new_winner, clean_event_title, clean_text, next_stage,
+)
 from musik_bingo.domain.song_list import format_songs, parse_songs
 
 PLAYBACK_TARGETS = ("lokal", "spotify", "youtube")
@@ -40,6 +45,13 @@ class GameService:
         self.player_name = ""
         # Gewinnziel der aktuellen Runde: reihe, zwei_reihen, volle_karte
         self.win_target = "reihe"
+        # Ablauf des Abends
+        self.event_title = DEFAULT_TITLE
+        self.round_number = 1
+        self.winners: list[Winner] = []
+        # Song-Timer (0 = aus) und Auflösungszeit für den Beamer
+        self.timer_seconds = 0
+        self.reveal_seconds = 5
 
     def set_song_text(self, text: str) -> list[Song]:
         self.song_text = text
@@ -66,6 +78,10 @@ class GameService:
         self.card_count = count
         self.diagonal_wins = diagonal_wins
         self.game.caller = Caller(songs)
+        # Neue Karten = neuer Abend: Gewinner gehören zu den alten Karten (liegen in der Sicherung).
+        self.round_number = 1
+        self.win_target = "reihe"
+        self.winners = []
         return cards
 
     def check_bingo(self, card_number: int) -> list[str]:
@@ -104,6 +120,53 @@ class GameService:
         game = self.game
         return guarantee(game.cards, game.songs, game.size, game.free_space)
 
+    def set_event_title(self, title: str) -> str:
+        self.event_title = clean_event_title(title)
+        return self.event_title
+
+    def set_timer(self, seconds: int, reveal_seconds: int) -> None:
+        SongTimer(seconds, reveal_seconds)  # prüft die Grenzen
+        self.timer_seconds, self.reveal_seconds = seconds, reveal_seconds
+
+    def advance_stage(self) -> tuple[str, bool]:
+        """Nächste Gewinnstufe; nach „Volle Karte“ neue Runde mit neu gemischter Ziehung."""
+        if not self.game.cards:
+            raise ValueError("Es gibt noch keine Runde.")
+        target, new_round = next_stage(self.win_target)
+        if new_round:
+            if self.round_number >= 999:
+                raise ValueError("Maximale Rundenzahl erreicht.")
+            self.game.caller.reshuffle()
+            self.round_number += 1
+        self.win_target = target
+        return target, new_round
+
+    def restart_round(self) -> None:
+        """Neu mischen mitten im Spiel = neue Runde (sonst könnte ein echter Gewinner nicht eingetragen werden)."""
+        if not self.game.cards:
+            raise ValueError("Es gibt noch keine Runde.")
+        if self.round_number >= 999:
+            raise ValueError("Maximale Rundenzahl erreicht.")
+        self.game.caller.reshuffle()
+        self.round_number += 1
+        self.win_target = "reihe"
+
+    def add_winner(self, card_number: int, name: str = "", allow_repeat: bool = False) -> Winner:
+        """Trägt eine Karte als Gewinner der aktuellen Stufe ein – nur, wenn sie das Ziel wirklich erreicht hat."""
+        reached, _lines, _full = self.check_win(card_number)
+        if not reached:
+            raise ValueError(f"Karte #{card_number} hat das Gewinnziel noch nicht erreicht.")
+        winner = Winner(self.round_number, self.win_target, card_number, clean_text(name, MAX_NAME_LENGTH),
+                        len(self.game.caller.drawn))
+        check_new_winner(self.winners, winner, allow_repeat)
+        self.winners.append(winner)
+        return winner
+
+    def remove_winner(self, index: int) -> Winner:
+        if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < len(self.winners):
+            raise ValueError("Diesen Gewinner gibt es nicht.")
+        return self.winners.pop(index)
+
     def draw_song(self, song: Song) -> bool:
         """Markiert einen bestimmten Song als nächsten gezogenen (Folgen-Modus)."""
         return self.game.caller.draw_song(song)
@@ -140,7 +203,12 @@ class GameService:
                 "follow_player": self.follow_player,
                 "player_name": self.player_name,
                 "win_target": self.win_target,
+                "event_title": self.event_title,
+                "round_number": self.round_number,
+                "timer_seconds": self.timer_seconds,
+                "reveal_seconds": self.reveal_seconds,
             },
+            "winners": [winner.to_dict() for winner in self.winners],
             "songs": [song.to_dict() for song in self.game.songs],
             "cards": [card.to_dict() for card in self.game.cards],
             "size": self.game.size,
@@ -304,4 +372,27 @@ class GameService:
         if win_target not in WIN_TARGETS:
             raise ValueError("Ungültiges Gewinnziel im Spielstand.")
         service.win_target = win_target
+        title = settings.get("event_title", DEFAULT_TITLE)
+        if not isinstance(title, str):
+            raise ValueError("Ungültiger Titel der Feier im Spielstand.")
+        service.event_title = clean_event_title(title)
+        round_number = settings.get("round_number", 1)
+        if not isinstance(round_number, int) or isinstance(round_number, bool) or not 1 <= round_number <= 999:
+            raise ValueError("Ungültige Rundennummer im Spielstand.")
+        service.round_number = round_number
+        try:
+            service.set_timer(settings.get("timer_seconds", 0), settings.get("reveal_seconds", 5))
+        except ValueError as error:
+            raise ValueError(f"Ungültige Timer-Einstellung im Spielstand: {error}") from error
+        raw_winners = data.get("winners", [])
+        if not isinstance(raw_winners, list) or len(raw_winners) > MAX_WINNERS:
+            raise ValueError("Ungültige Gewinnerliste im Spielstand.")
+        service.winners = []
+        for item in raw_winners:
+            winner = Winner.from_dict(item, len(cards))
+            try:
+                check_new_winner(service.winners, winner, allow_repeat=True)
+            except ValueError as error:
+                raise ValueError(f"Gewinnerliste im Spielstand: {error}") from error
+            service.winners.append(winner)
         return service

@@ -342,12 +342,17 @@ def bingo_check_dialog(parent: Gtk.Window, card_count: int, rule: str) -> tuple[
 def bingo_result_dialog(parent: Gtk.Window, card: BingoCard, number: int, name: str, size: int,
                         free_space: bool, drawn_keys: set[str], wins: list[str],
                         winning_cells: set[int], target_label: str = "", reached: bool | None = None,
-                        full: bool = False) -> None:
+                        full: bool = False) -> bool:
+    """Zeigt die geprüfte Karte. Rückgabe True = „Als Gewinner eintragen“ gewählt."""
     if reached is None:  # ohne Gewinnziel: jede volle Linie zählt
         reached = bool(wins)
         target_label = target_label or "1 Reihe"
     title = "BINGO bestätigt!" if reached else "Noch kein Bingo"
     dialog, content, _ok = base_dialog(parent, title, None, 640)
+    if reached:
+        register = dialog.add_button("Als Gewinner eintragen", Gtk.ResponseType.OK)
+        add_class(register, "primary")
+        dialog.set_default_response(Gtk.ResponseType.OK)
     who = f"Karte #{number}" + (f" · {name}" if name else "")
     headline = label(f"<span size='x-large' weight='heavy'>{escape(who)}</span>", markup=True)
     content.pack_start(headline, False, False, 0)
@@ -384,5 +389,6 @@ def bingo_result_dialog(parent: Gtk.Window, card: BingoCard, number: int, name: 
     content.pack_start(label(f"{hits} gezogene Songs auf dieser Karte · grün = gezogen · gold = Gewinnlinie",
                              "muted", "small"), False, False, 0)
     dialog.show_all()
-    dialog.run()
+    response = dialog.run()
     dialog.destroy()
+    return bool(reached) and response == Gtk.ResponseType.OK

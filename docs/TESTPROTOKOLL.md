@@ -1,15 +1,15 @@
 # Prüfprotokoll
 
-Stand: 19.11.2026 (v2.2) · Umgebung: Ubuntu 24.04 (= Basis Linux Mint 22), Python 3.12, GTK 3.24, Xvfb
+Stand: 19.11.2026 (v2.3) · Umgebung: Ubuntu 24.04 (= Basis Linux Mint 22), Python 3.12, GTK 3.24, Xvfb
 
 ## Automatisch (auch in der GitHub-Pipeline)
 
 | Suite | Tests | Ergebnis |
 |---|---|---|
-| Unit (inkl. Gewinngarantie, Prognose, Design-Klassen) | 98 | ✅ |
-| Integration (Spotify-Simulation über D-Bus, GStreamer, Druck, Installer, Sicherungen) | 22 | ✅ |
-| Sicherheit | 14 | ✅ |
-| GUI/E2E unter Xvfb (Gesamtablauf, Spotify, Grenzfälle, Kontrast, Fensterklasse, Screenshots) | 6 | ✅ |
+| Unit (inkl. Gewinngarantie, Prognose, Abend-Logik, Timer, Beamer-Inhalt) | 116 | ✅ |
+| Integration (Spotify-Simulation, GStreamer, Druck, Installer, Sicherungen, Release-Bau) | 34 | ✅ |
+| Sicherheit | 17 | ✅ |
+| GUI/E2E unter Xvfb (Gesamtablauf, Abend-Funktionen, Spotify, Grenzfälle, Kontrast, Fensterklasse, Screenshots) | 7 | ✅ |
 | ruff (Fehler, Bugs, bandit-Sicherheitsregeln), shellcheck | – | ✅ |
 
 ## Gewinngarantie (140 Gäste)
@@ -37,6 +37,18 @@ Zusätzlich durch die neuen Tests gefunden und behoben: leeres PDF ohne `python3
 Unabhängige Prüfung plus eigene Tests fanden 8 weitere Punkte, alle behoben und mit Tests abgesichert: unlesbarer Dateidialog (Meldung aus dem echten Einsatz), falsche Fensterklasse, fehlende Sicherung vor neuen Karten, irreführende Kartenfußzeile, Gewinnziel nicht sichtbar, Leertaste auf Schalter, veraltete Prognose, doppelter Titel „Last Christmas“.
 Belegt ohne Befund: Prognose stimmt für 3×3/4×4/5×5 mit/ohne Freifeld/Diagonalen exakt mit Nachspielen überein; 160 Karten → 80 A4-Seiten in 0,3 s; `pip install` enthält alle Daten; Start über den Menüeintrag aus frischem GitHub-Klon.
 
+## Prüfung der Abend-Funktionen (v2.3, Prüfer: Claude Fable 5.2)
+
+8 Befunde, alle behoben und mit Regressionstests abgesichert:
+- Leertaste auf zuletzt geklicktem „Titel aufdecken“ hätte den Titel den Gästen gezeigt → Klicks setzen keinen Fokus mehr, T/P wirken immer
+- Timer lief bei offenen Dialogen weiter → steht, solange ein Dialog offen ist
+- „Bingo prüfen“ hob eine manuelle Timer-Pause auf; Folgen-Modus + Timer blieb bei bekanntem/fremdem Titel stehen
+- „Neu mischen“ blockierte echte Gewinner → gilt jetzt als neue Runde
+- Aufdecken-Knopf nach Import, Kartenvorschau nach Titeländerung, überlange Titel im Druck, doppelte Gewinner in Dateien, Tasten im Beamer-Fenster, Release: Checkout fest auf den Tag, GUI-Tests auch vor jedem Release
+
+Selbst gefunden: Release-ZIP hätte bei nicht committeten Änderungen neue Versionsnummer mit altem Inhalt bekommen.
+Nicht prüfbar: Platzierung auf einem echten zweiten Bildschirm (Testumgebung hat einen Monitor).
+
 ## Vor der Feier einmal von Hand (echter Rechner)
 
 1. `bash scripts/install-desktop.sh`, App über das Menü starten
@@ -44,5 +56,6 @@ Belegt ohne Befund: Prognose stimmt für 3×3/4×4/5×5 mit/ohne Freifeld/Diagon
 3. Spotify-Desktop-App starten, Playlist abspielen → *Player folgen* → Song wird gezogen
 4. Einen Song ohne Folgen-Modus mit *Abspielen* in Spotify starten
 5. App schließen und neu öffnen → Stand ist erhalten
+6. Beamer anschließen, *Beamer öffnen* → Fenster erscheint im Vollbild auf dem Beamer, Titel verdeckt, T deckt auf
 
 Nicht automatisch prüfbar: echte Spotify-/Browser-Anbindung (simuliert getestet), echter Drucker, Tonausgabe.

@@ -33,5 +33,22 @@ class PrintRendererTests(unittest.TestCase):
                     surface.finish()
 
 
+class TitleFitTests(unittest.TestCase):
+    def test_long_titles_never_overflow(self):
+        from musik_bingo.presentation.printing import fit_title
+        surface = cairo.ImageSurface(cairo.FORMAT_ARGB32, 10, 10)
+        cr = cairo.Context(surface)
+        cr.select_font_face("Sans", 0, 1)
+        for title in ("ß" * 60, "Weihnachtsfeier 2026", "W" * 60, ""):
+            for available in (120.0, 361.0, 500.0):
+                with self.subTest(title=title[:10], available=available):
+                    fitted, size = fit_title(cr, title.upper(), available, 15.6)
+                    cr.set_font_size(size)
+                    self.assertLessEqual(cr.text_extents(fitted)[2], available)
+                    self.assertGreaterEqual(size, 6.0)
+        fitted, _ = fit_title(cr, "KURZ", 361.0, 15.6)
+        self.assertEqual(fitted, "KURZ")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -7,6 +7,8 @@ Musik-Bingo für private Feiern als native Desktop-App (Python + GTK 3).
 
 ![Spielleitung](docs/screenshots/spielleitung.png)
 
+![Beamer-Ansicht für die Gäste](docs/screenshots/beamer.png)
+
 ## Funktionen
 
 - **Karten:** 3×3, 4×4 oder 5×5, Freifeld, Diagonalen, bis 500 verschiedene Karten, Druck/PDF
@@ -15,9 +17,17 @@ Musik-Bingo für private Feiern als native Desktop-App (Python + GTK 3).
 - **Wiedergabe:** lokale Dateien, Spotify-Desktop-App oder YouTube im Browser
 - **Player folgen:** Playlist läuft in Spotify/YouTube, die App zieht den laufenden Song automatisch und warnt bei fremden Titeln
 - **Gewinnziel pro Runde:** 1 Reihe, 2 Reihen oder volle Karte – mit Spielprognose und Gewinngarantie
-- **Bingo prüfen:** zeigt die Karte mit gezogenen Feldern und Gewinnlinie
+- **Bingo prüfen:** zeigt die Karte mit gezogenen Feldern und Gewinnlinie, trägt Gewinner ein
+- **Beamer-Ansicht:** zweites Fenster für die Gäste, Titel erst nach Aufdecken (T), Countdown, BINGO-Banner
+- **Song-Timer:** nach X Sekunden auflösen und automatisch weiter (P = Pause)
+- **Gewinnerliste & Runden:** 1 Reihe → 2 Reihen → Volle Karte → neue Runde; keine Karte gewinnt doppelt
+- **Titel der Feier** auf Karten und Beamer
 
 ## Installation
+
+**Am einfachsten:** unter [Releases](https://github.com/Sawashiroxx/MusicBingo_LinuxMint_Standalone/releases) die neueste `musik-bingo-<version>.zip` herunterladen, entpacken, im Ordner `bash scripts/install-desktop.sh` ausführen.
+
+Oder per Git:
 
 ```bash
 git clone https://github.com/Sawashiroxx/MusicBingo_LinuxMint_Standalone.git
@@ -34,7 +44,7 @@ Optional für lokale Musikdateien: `python3-gst-1.0`.
 
 1. **Songs & Playlist:** Liste importieren oder Zufallsmix erstellen → *Karten erzeugen*
 2. **Bingokarten:** *Drucken / PDF*
-3. **Spielleitung:** Wiedergabe wählen → ziehen (Leertaste) oder *Player folgen* → *Bingo prüfen*
+3. **Spielleitung:** *Beamer öffnen*, Song-Timer einstellen, ziehen (Leertaste) oder *Player folgen* → *Bingo prüfen* → *Als Gewinner eintragen* → *Weiter: 2 Reihen* …
 
 **Für ~140 Gäste** (Standardwerte): 75 Songs, 5×5 mit Freifeld, 160 Karten drucken. Ob 120 oder 170 kommen, ändert den Ablauf kaum.
 
@@ -80,3 +90,5 @@ Die GitHub-Pipeline führt Lint, Unit- (Mint 21 + 22), Integrations-, Sicherheit
 | [docs/TESTPROTOKOLL.md](docs/TESTPROTOKOLL.md) | Prüfstand und manuelle Checkliste |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Ablauf für Änderungen |
 | [CHANGELOG.md](CHANGELOG.md) | Versionen |
+
+**Neue Version veröffentlichen:** Version in `musik_bingo/__init__.py` und `pyproject.toml` erhöhen, Abschnitt in `CHANGELOG.md` ergänzen, dann Tag pushen (`git tag v2.3.0 && git push origin v2.3.0`) oder auf GitHub *Releases → Draft a new release* mit neuem Tag. Die Pipeline testet und hängt ZIP, tar.gz und Prüfsummen an.

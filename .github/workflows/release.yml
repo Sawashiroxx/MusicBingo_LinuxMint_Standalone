@@ -1,0 +1,81 @@
+name: Release
+
+# Erstellt automatisch ein GitHub-Release mit ZIP, tar.gz, SHA256SUMS und Release-Notizen.
+# Auslöser: Tag "vX.Y.Z" pushen (git tag v2.3.0 && git push origin v2.3.0)
+# oder manuell über "Run workflow" mit Angabe des Tags.
+# Existiert das Release schon (z. B. im GitHub-Webformular angelegt), werden nur die Dateien hochgeladen.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag des Releases, z. B. v2.3.0 (muss zur Version in musik_bingo/__init__.py passen)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+  PYTHONPATH: ${{ github.workspace }}
+  PYTHONDONTWRITEBYTECODE: "1"
+  APT_BASE: >-
+    python3-gi python3-gi-cairo python3-cairo gir1.2-gtk-3.0
+    python3-gst-1.0 gir1.2-gstreamer-1.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good
+    dbus desktop-file-utils
+
+jobs:
+  tests:
+    name: Tests vor dem Release (Unit, Integration, Sicherheit)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.TAG }}
+          fetch-depth: 0
+      - name: Systempakete
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends $APT_BASE \
+            xvfb xauth dbus-x11 x11-utils poppler-utils librsvg2-common adwaita-icon-theme fonts-dejavu-core
+      - name: Unit-Tests
+        run: /usr/bin/python3 -m unittest discover -v -s tests/unit -t .
+      - name: Integrationstests
+        run: /usr/bin/python3 -m unittest discover -v -s tests/integration -t .
+      - name: Sicherheitstests
+        run: /usr/bin/python3 -m unittest discover -v -s tests/security -t .
+      - name: GUI-/E2E-Tests (Xvfb)
+        run: /usr/bin/python3 -m unittest discover -v -s tests/gui -t .
+
+  release:
+    name: Pakete bauen und Release veröffentlichen
+    needs: tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.TAG }}
+      - name: Pakete bauen (ZIP, tar.gz, SHA256SUMS, Release-Notizen)
+        run: bash scripts/build-release.sh "$TAG" dist
+      - name: Release veröffentlichen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${TAG#v}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG existiert bereits – lade Dateien hoch (überschreibt gleichnamige)."
+            gh release upload "$TAG" dist/*.zip dist/*.tar.gz dist/SHA256SUMS --clobber
+          else
+            echo "Lege Release $TAG an."
+            gh release create "$TAG" dist/*.zip dist/*.tar.gz dist/SHA256SUMS \
+              --verify-tag \
+              --title "Musik Bingo $VERSION" \
+              --notes-file dist/RELEASE_NOTES.md
+          fi

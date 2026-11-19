@@ -206,6 +206,34 @@ class SaveFileTests(unittest.TestCase):
             self.assertLess(time.perf_counter() - start, 5)
 
 
+class EveningInputTests(unittest.TestCase):
+    """Feiertitel und Gewinnernamen landen auf Karten, Beamer, CSV – nur sauberer Text."""
+
+    def test_title_and_names_are_cleaned_in_save_files(self):
+        data = sample_service().to_dict()
+        data["settings"]["event_title"] = "\u202eFeier\x00\n" + "x" * 5000
+        data["winners"] = [{"round": 1, "target": "reihe", "card": 1, "name": "\u2066Name\x1b[31m" + "y" * 900,
+                            "song_count": 5}]
+        restored = GameService.from_dict(data)
+        self.assertEqual(len(restored.event_title), 60)
+        self.assertTrue(restored.event_title.startswith("Feier"))
+        name = restored.winners[0].name
+        self.assertLessEqual(len(name), 60)
+        self.assertFalse(any(ord(char) < 32 or char in "\u202e\u2066" for char in name))
+
+    def test_too_many_winners_are_rejected(self):
+        data = sample_service().to_dict()
+        data["winners"] = [{"round": 1, "target": "reihe", "card": 1, "name": "", "song_count": 1}] * 1001
+        with self.assertRaises(ValueError):
+            GameService.from_dict(data)
+
+    def test_csv_export_neutralizes_formulas_everywhere(self):
+        from musik_bingo.domain.evening import Winner, winners_csv
+        text = winners_csv([Winner(1, "reihe", 3, "@SUMME(A1)", 4)], "=cmd|' /C calc'!A0")
+        for cell in ("=cmd", "@SUMME"):
+            self.assertNotIn("," + cell, "," + text.replace("\n", ","))
+
+
 class ImportLimitTests(unittest.TestCase):
     def test_large_files_are_refused(self):
         try:

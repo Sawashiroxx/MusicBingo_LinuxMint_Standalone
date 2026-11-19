@@ -26,6 +26,10 @@ musik_bingo/
 | `domain/playlist.py` | Import CSV/M3U/Text/Player, Export Text/CSV/M3U |
 | `domain/matching.py` | Laufenden Titel einem Song zuordnen, Playlist-Abgleich |
 | `domain/card_generator.py` | Karten erzeugen, Gewinnlinien prüfen |
+| `domain/evening.py` | Ablauf des Abends: Stufen/Runden, Gewinner mit Doppel-Schutz, Feiertitel, CSV-Export |
+| `application/song_timer.py` | Song-Timer (Countdown → Auflösung → nächster Song), ohne GTK testbar |
+| `application/beamer_state.py` | Was die Gäste sehen (Titel verborgen bis Aufdecken) |
+| `presentation/beamer.py` | Beamer-Fenster (zweiter Bildschirm, Vollbild) |
 | `domain/forecast.py` | Gewinnziele, Spielprognose (wann gibt es Gewinner?), Gewinngarantie |
 | `domain/caller.py` | Ziehreihenfolge, ziehen, Song gezielt ziehen, zurück, mischen |
 | `application/game_service.py` | Zustand, Einstellungen, JSON-Format mit Validierung |
@@ -44,6 +48,9 @@ musik_bingo/
 - **Song-Identität:** Titel + Interpret (ohne Groß-/Kleinschreibung). Der Link gehört nicht dazu.
 - **Zuordnung (Folgen-Modus):** Spotify-ID → Titel + Interpret → eindeutiger Titel. Mehrdeutiges wird nicht geraten, unbekannte Titel werden nie gezogen, Werbung wird ignoriert.
 - **Abspielen:** Spotify-Link + laufende App → MPRIS `OpenUri`; sonst `spotify:`-Schema → Webplayer/Suche. YouTube → Browser.
+- **Stufen:** 1 Reihe → 2 Reihen → Volle Karte bei weiterlaufender Ziehung (passt zur Prognose); danach neue Runde mit neu gemischter Ziehung. Neue Karten setzen Runde und Gewinnerliste zurück (alte Stände liegen in `sicherungen/`).
+- **Gewinner:** nur eintragbar, wenn die Karte das aktuelle Ziel erreicht hat; gleiche Karte und Stufe nie doppelt, andere Stufe nur nach Rückfrage.
+- **Beamer:** zeigt den aktuellen Titel erst nach Aufdecken; „Zuletzt“ enthält nur vorherige Songs.
 - **Offline:** Die App öffnet keine Netzwerkverbindungen. MPRIS läuft über den lokalen Sitzungsbus.
 
 ## Spielstand
@@ -70,3 +77,5 @@ Housewife – Tate McRae
 | `tests/security` | kein Netzwerk, Link-Positivliste (Fuzzing), Dateirechte, manipulierte Dateien, Exec-Injection |
 | `tests/gui` | echte GTK-Fenster unter Xvfb: Gesamtablauf inkl. PDF, Spotify-E2E, Grenzfälle, Screenshots |
 | `tests/support` | simulierter MPRIS-Player |
+
+Release: `scripts/build-release.sh <tag>` baut aus Git ZIP/tar.gz/Prüfsummen und Release-Notizen; `.github/workflows/release.yml` läuft bei Tags `v*`.
