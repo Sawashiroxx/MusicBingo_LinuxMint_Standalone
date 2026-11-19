@@ -92,7 +92,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends $APT_BASE \
-            xvfb xauth dbus-x11 librsvg2-common adwaita-icon-theme fonts-dejavu-core
+            xvfb xauth dbus-x11 x11-utils librsvg2-common adwaita-icon-theme fonts-dejavu-core
       - name: GUI-/E2E-Tests
         env:
           SCREENSHOT_DIR: ${{ runner.temp }}/screenshots

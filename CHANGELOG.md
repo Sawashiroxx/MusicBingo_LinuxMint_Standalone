@@ -1,5 +1,16 @@
 # Änderungsprotokoll
 
+## 2.2 – November 2026
+
+- Behoben: Dateidialog im dunklen Design unlesbar (App-Design deutete GTK-Klassen `cell`/`sidebar` um).
+- Behoben: Fensterklasse passte nicht zum Menüeintrag (Taskleiste/Icon).
+- Behoben: Gewinnziel fehlte in der Kopfzeile; Leertaste auf dem „Player folgen“-Schalter zog einen Song;
+  veraltete Prognose nach Import ohne Karten.
+- Automatische Sicherung vor neuen Karten und vor Import (letzte 10, nur für den Benutzer lesbar).
+- Kartenfußzeile neutral: Gewinnziel wird angesagt (statt fest „Reihe oder Spalte“).
+- Gleiche Titel von verschiedenen Interpreten: Zufallsmix nimmt nur eine Version, Songliste warnt.
+- Tests: Design-Klassen, Text-Kontrast (WCAG), Fensterklasse, Sicherungen; insgesamt 140.
+
 ## 2.1 – November 2026
 
 - Startliste neu: 75 Songs, 45 Chart-Hits 2025/26 und 30 Weihnachtslieder gemischt.

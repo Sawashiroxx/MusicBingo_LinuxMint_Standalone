@@ -1,15 +1,15 @@
 # Prüfprotokoll
 
-Stand: 19.11.2026 · Umgebung: Ubuntu 24.04 (= Basis Linux Mint 22), Python 3.12, GTK 3.24, Xvfb
+Stand: 19.11.2026 (v2.2) · Umgebung: Ubuntu 24.04 (= Basis Linux Mint 22), Python 3.12, GTK 3.24, Xvfb
 
 ## Automatisch (auch in der GitHub-Pipeline)
 
 | Suite | Tests | Ergebnis |
 |---|---|---|
-| Unit (inkl. Gewinngarantie und Prognose) | 94 | ✅ |
-| Integration (Spotify-Simulation über D-Bus, GStreamer, Druck, Installer) | 20 | ✅ |
+| Unit (inkl. Gewinngarantie, Prognose, Design-Klassen) | 98 | ✅ |
+| Integration (Spotify-Simulation über D-Bus, GStreamer, Druck, Installer, Sicherungen) | 22 | ✅ |
 | Sicherheit | 14 | ✅ |
-| GUI/E2E unter Xvfb (4 Szenarien, ~90 Einzelprüfungen) | 4 | ✅ |
+| GUI/E2E unter Xvfb (Gesamtablauf, Spotify, Grenzfälle, Kontrast, Fensterklasse, Screenshots) | 6 | ✅ |
 | ruff (Fehler, Bugs, bandit-Sicherheitsregeln), shellcheck | – | ✅ |
 
 ## Gewinngarantie (140 Gäste)
@@ -31,6 +31,11 @@ Ein separater Prüfdurchgang fand 11 Befunde. Alle wurden behoben und durch Regr
 - sehr tief verschachtelte JSON verhinderte den Start; CSV-Fehler; Kleinigkeiten (Rundung, URL-Kodierung)
 
 Zusätzlich durch die neuen Tests gefunden und behoben: leeres PDF ohne `python3-gi-cairo`, Absturz bei Player-Metadaten mit falschen Typen, Exec-Maskierung bei Sonderzeichen im Ordnernamen.
+
+## Zweite Gesamtprüfung (v2.2)
+
+Unabhängige Prüfung plus eigene Tests fanden 8 weitere Punkte, alle behoben und mit Tests abgesichert: unlesbarer Dateidialog (Meldung aus dem echten Einsatz), falsche Fensterklasse, fehlende Sicherung vor neuen Karten, irreführende Kartenfußzeile, Gewinnziel nicht sichtbar, Leertaste auf Schalter, veraltete Prognose, doppelter Titel „Last Christmas“.
+Belegt ohne Befund: Prognose stimmt für 3×3/4×4/5×5 mit/ohne Freifeld/Diagonalen exakt mit Nachspielen überein; 160 Karten → 80 A4-Seiten in 0,3 s; `pip install` enthält alle Daten; Start über den Menüeintrag aus frischem GitHub-Klon.
 
 ## Vor der Feier einmal von Hand (echter Rechner)
 

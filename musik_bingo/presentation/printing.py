@@ -137,7 +137,8 @@ def draw_card(cr, card, number: int, x: float, y: float, width: float, height: f
     cr.line_to(x + width * 0.62, name_y + 2)
     cr.stroke()
 
-    rule = "Reihe oder Spalte voll" + (" (auch diagonal)" if diagonal_wins else "") + " → BINGO!"
+    rule = ("Song erkannt? Feld abkreuzen. Gewinnziel sagt die Spielleitung an "
+            "(Reihe/Spalte" + (", auch diagonal" if diagonal_wins else "") + ", 2 Reihen oder volle Karte).")
     footer_h = 16
     grid_x = x + pad
     grid_y = name_y + 10
@@ -170,7 +171,11 @@ def draw_card(cr, card, number: int, x: float, y: float, width: float, height: f
     cr.stroke()
 
     cr.select_font_face("Sans", 0, 0)
-    cr.set_font_size(8.5)
+    font_size = 8.5
+    cr.set_font_size(font_size)
+    while font_size > 5 and cr.text_extents(rule)[2] > width - 2 * pad:
+        font_size -= 0.25
+        cr.set_font_size(font_size)
     cr.set_source_rgb(*MUTED)
     extents = cr.text_extents(rule)
     cr.move_to(x + (width - extents[2]) / 2, y + height - pad - 4)

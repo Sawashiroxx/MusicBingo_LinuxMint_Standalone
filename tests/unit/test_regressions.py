@@ -79,6 +79,26 @@ class CsvRobustnessTests(unittest.TestCase):
                     pass  # saubere Fehlermeldung ist erwünscht
 
 
+class SameTitleTests(unittest.TestCase):
+    def test_mix_never_contains_same_title_twice(self):
+        xmas = [Song("Last Christmas", "Wham!"), Song("Last Christmas", "Taylor Swift")] + [Song(f"X{i}", "A") for i in range(5)]
+        charts = [Song("Golden", "HUNTR/X"), Song("golden", "Andere Band")] + [Song(f"C{i}", "B") for i in range(5)]
+        for seed in range(20):
+            songs = random_mix(xmas, charts, 14, 50, random.Random(seed)).songs
+            titles = [s.title.casefold() for s in songs]
+            self.assertEqual(len(titles), len(set(titles)))
+
+    def test_shipped_catalogs_have_unique_titles(self):
+        from musik_bingo.domain.catalog import parse_catalog
+        from musik_bingo.domain.text import normalize
+        from musik_bingo.paths import CATALOG_DIR
+        artists: dict[str, set[str]] = {}
+        for path in CATALOG_DIR.glob("*.txt"):
+            for song in parse_catalog(path.stem, path.read_text(encoding="utf-8")).songs:
+                artists.setdefault(normalize(song.title), set()).add(normalize(song.artist))
+        self.assertEqual({k: v for k, v in artists.items() if len(v) > 1}, {})
+
+
 class SmallFixesTests(unittest.TestCase):
     def test_band_names_with_numbers_survive(self):
         self.assertEqual(strip_leading_number("311 - Amber"), "311 - Amber")

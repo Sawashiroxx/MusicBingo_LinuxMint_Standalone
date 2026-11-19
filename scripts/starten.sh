@@ -3,7 +3,7 @@ set -euo pipefail
 
 # Projektordner = Ordner oberhalb von scripts/
 PROJEKT_ORDNER="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
-PYTHON="/usr/bin/python3"
+PYTHON="${MUSIK_BINGO_PYTHON:-/usr/bin/python3}"  # überschreibbar für Tests/andere Systeme
 
 fehler() {
   zenity --error --title="Musik Bingo" --width=420 --text="$1" 2>/dev/null || printf 'Musik Bingo: %s\n' "$1" >&2

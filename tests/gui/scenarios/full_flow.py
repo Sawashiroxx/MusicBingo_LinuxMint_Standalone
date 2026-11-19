@@ -110,6 +110,13 @@ def scenario(w):
     # Gewinnziel „Volle Karte“: erst nach allen Songs der Karte erfüllt
     w.win_buttons["volle_karte"].set_active(True)
     check("Gewinnziel umgestellt", w.service.win_target == "volle_karte")
+    check("Gewinnziel in der Kopfzeile sichtbar", "Volle Karte" in w.rule_pill.get_text())
+    before_switch = len(w.service.game.caller.drawn)
+    w.follow_switch.grab_focus()
+    event = Gdk.Event.new(Gdk.EventType.KEY_PRESS)
+    event.keyval = Gdk.KEY_space
+    check("Leertaste auf Schalter zieht keinen Song", not w._on_key(w, event)
+          and len(w.service.game.caller.drawn) == before_switch)
     result = {}
     dialogs.bingo_check_dialog = lambda parent, count, rule: (1, "Oma")
     dialogs.bingo_result_dialog = lambda *args: result.update(reached=args[10], full=args[11], label=args[9])
@@ -122,6 +129,15 @@ def scenario(w):
     check("alle Songs gespielt → jede Karte gewinnt (Garantie)", len(winners) == len(w.service.game.cards))
     w._verify_bingo(None)
     check("Bingo-Prüfung bestätigt Volle Karte", result.get("reached") is True and result.get("full") is True)
+
+    # Neue Karten nach dem Druck: alte Runde wird automatisch gesichert
+    old_first_card = list(w.service.game.cards[0].songs)
+    w._generate(None)
+    backups = w.store.backups()
+    check("Sicherung vor neuen Karten angelegt", len(backups) == 1)
+    from musik_bingo.infrastructure.file_store import FileStore
+    check("Sicherung enthält die alten Karten", FileStore.import_from(backups[0]).game.cards[0].songs == old_first_card)
+    w.win_buttons["volle_karte"].set_active(True)
 
     w._save_settings()
     saved = json.loads((TMP / "data" / "musik-bingo" / "spielstand.json").read_text())
