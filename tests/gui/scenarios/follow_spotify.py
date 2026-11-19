@@ -6,7 +6,7 @@ import sys
 from common import (MESSAGES, ROOT, TMP, check, forbid_network, patch_dialogs, pump, run, wait)
 
 LOG = TMP / "fake.json"
-FAKE = subprocess.Popen([sys.executable, str(ROOT / "tests" / "support" / "fake_spotify_process.py"), str(LOG)],
+FAKE = subprocess.Popen([sys.executable, str(ROOT / "tests" / "support" / "fake_player_process.py"), str(LOG), "spotify"],
                         stdout=subprocess.PIPE, text=True)
 assert FAKE.stdout.readline().strip() == "ready"
 forbid_network()

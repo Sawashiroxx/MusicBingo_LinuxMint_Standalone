@@ -11,7 +11,7 @@ from musik_bingo.domain.evening import (
 )
 from musik_bingo.domain.song_list import format_songs, parse_songs
 
-PLAYBACK_TARGETS = ("lokal", "spotify", "youtube")
+PLAYBACK_TARGETS = ("lokal", "spotify", "youtube", "ytmusic")
 
 
 @dataclass
@@ -37,9 +37,9 @@ class GameService:
         self.diagonal_wins = self.game.diagonal_wins
         self.auto_play = False
         self.audio_files: dict[str, str] = {}
-        # Wo wird ein gezogener Song abgespielt? lokal (GStreamer), spotify, youtube
+        # Wo wird ein gezogener Song abgespielt? lokal (GStreamer), spotify, youtube, ytmusic (YouTube Music)
         self.playback_target = "lokal"
-        # Folgen-Modus: Der Player (Spotify/YouTube) spielt die Playlist,
+        # Folgen-Modus: Der Player (Spotify/YouTube/YouTube Music) spielt die Playlist,
         # die App zieht automatisch den gerade laufenden Song.
         self.follow_player = False
         self.player_name = ""

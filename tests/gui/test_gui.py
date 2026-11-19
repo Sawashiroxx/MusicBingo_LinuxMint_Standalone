@@ -37,6 +37,9 @@ class GuiTests(unittest.TestCase):
     def test_follow_spotify_end_to_end(self):
         self.scenario("follow_spotify.py")
 
+    def test_follow_youtube_music_end_to_end(self):
+        self.scenario("follow_ytmusic.py")
+
     def test_edge_cases(self):
         for mode in ("broken", "deep", "defaults", "empty", "big"):
             with self.subTest(mode=mode):

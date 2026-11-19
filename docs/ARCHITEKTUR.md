@@ -36,7 +36,7 @@ musik_bingo/
 | `infrastructure/file_store.py` | Atomisches Speichern unter `$XDG_DATA_HOME/musik-bingo/` |
 | `infrastructure/audio_*.py` | Audiodateien zuordnen und mit GStreamer abspielen |
 | `infrastructure/mpris.py` | Player auflisten, Metadaten, Steuerung, `OpenUri`, Playlist einlesen |
-| `infrastructure/launcher.py` | Wie ein Song in Spotify/YouTube geöffnet wird |
+| `infrastructure/launcher.py` | Wie ein Song in Spotify, YouTube oder YouTube Music geöffnet wird |
 | `presentation/gtk_app.py` | Hauptfenster mit drei Bereichen, Folgen-Modus |
 
 ## Wichtige Regeln
@@ -47,7 +47,8 @@ musik_bingo/
 - **Prognose:** Pro simuliertem Spiel genügt die Ziehposition jedes Songs: Eine Linie ist voll beim Maximum ihrer Felder. 200 Spiele mit 160 Karten dauern < 0,5 s. Tests vergleichen das Ergebnis exakt mit Song-für-Song-Nachspielen.
 - **Song-Identität:** Titel + Interpret (ohne Groß-/Kleinschreibung). Der Link gehört nicht dazu.
 - **Zuordnung (Folgen-Modus):** Spotify-ID → Titel + Interpret → eindeutiger Titel. Mehrdeutiges wird nicht geraten, unbekannte Titel werden nie gezogen, Werbung wird ignoriert.
-- **Abspielen:** Spotify-Link + laufende App → MPRIS `OpenUri`; sonst `spotify:`-Schema → Webplayer/Suche. YouTube → Browser.
+- **Abspielen:** Spotify-Link + laufende App → MPRIS `OpenUri`; sonst `spotify:`-Schema → Webplayer/Suche. YouTube → Browser (`youtube.com`). YouTube Music → `music.youtube.com/watch?v=<ID>` bzw. `/search?q=…` im Standardbrowser.
+- **Player-Wahl (MPRIS):** Spotify → nur Spotify; YouTube → Browser; YouTube Music → zuerst eine YouTube-Music-Desktop-App, sonst ein Browser. Ein gespeicherter Player hat Vorrang, wenn er zum Ziel passt.
 - **Stufen:** 1 Reihe → 2 Reihen → Volle Karte bei weiterlaufender Ziehung (passt zur Prognose); danach neue Runde mit neu gemischter Ziehung. Neue Karten setzen Runde und Gewinnerliste zurück (alte Stände liegen in `sicherungen/`).
 - **Gewinner:** nur eintragbar, wenn die Karte das aktuelle Ziel erreicht hat; gleiche Karte und Stufe nie doppelt, andere Stufe nur nach Rückfrage.
 - **Beamer:** zeigt den aktuellen Titel erst nach Aufdecken; „Zuletzt“ enthält nur vorherige Songs.

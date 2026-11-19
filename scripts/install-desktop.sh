@@ -31,13 +31,13 @@ Version=1.0
 Type=Application
 Name=Musik Bingo
 GenericName=Musik-Bingo-Spiel
-Comment=Musik-Bingo für private Feiern – Karten, Ziehung, Spotify/YouTube
+Comment=Musik-Bingo für private Feiern – Karten, Ziehung, Spotify/YouTube Music
 Icon=musik-bingo
 Exec=/bin/bash "$EXEC_PFAD"
 Path=$PROJEKT_ORDNER
 Terminal=false
 Categories=Game;
-Keywords=Bingo;Musik;Weihnachten;Party;Spotify;
+Keywords=Bingo;Musik;Weihnachten;Party;Spotify;YouTube;
 StartupNotify=true
 StartupWMClass=de.weihnachtsfeier.musikbingo
 DESKTOP

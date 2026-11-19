@@ -1,5 +1,12 @@
 # Änderungsprotokoll
 
+## 2.4 – November 2026
+
+- YouTube Music als viertes Wiedergabeziel (neben lokalen Dateien, Spotify und YouTube): Titel bzw. Suche auf
+  music.youtube.com öffnen, „Player folgen“ und „Vom Player einlesen“ mit YouTube-Music-Desktop-App oder Browser.
+- Spielleitung: „Player folgen“ in eigener Zeile, damit das Fenster auf 1366-px-Bildschirme passt.
+- Hilfe: Abschnitt YouTube Music, Tastenkürzel T und P ergänzt.
+
 ## 2.3 – November 2026
 
 - Beamer-Ansicht für die Gäste: zweites Fenster (Vollbild auf dem zweiten Bildschirm), Songtitel verborgen bis

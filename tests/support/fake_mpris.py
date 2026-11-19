@@ -14,6 +14,16 @@ TRACKS = [
      "xesam:artist": ["Chris Rea"]},
 ]
 
+# YouTube-Music-Desktop-App: keine Spotify-IDs, dafür xesam:url; Premium → keine Werbung
+YTMUSIC_TRACKS = [
+    {"mpris:trackid": "/org/mpris/MediaPlayer2/Track/1", "xesam:title": "Last Christmas", "xesam:artist": ["Wham!"],
+     "xesam:url": "https://music.youtube.com/watch?v=E8gmARGvPlI"},
+    {"mpris:trackid": "/org/mpris/MediaPlayer2/Track/2", "xesam:title": "All I Want for Christmas Is You",
+     "xesam:artist": ["Mariah Carey"], "xesam:url": "https://music.youtube.com/watch?v=aAkMkVFwAoo"},
+    {"mpris:trackid": "/org/mpris/MediaPlayer2/Track/3", "xesam:title": "Highway to Hell",
+     "xesam:artist": ["AC/DC"], "xesam:url": "https://music.youtube.com/watch?v=l482T0yNkeo"},
+]
+
 XML = """
 <node>
   <interface name="org.mpris.MediaPlayer2">
