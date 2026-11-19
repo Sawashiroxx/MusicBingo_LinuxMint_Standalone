@@ -50,7 +50,7 @@ def scenario(w):
     w._draw_next()
     state = w.beamer.state
     current = w.service.game.caller.current
-    check("Beamer: Titel verdeckt", state.title == HIDDEN and current.title not in " ".join(state.recent))
+    check("Beamer: Titel verdeckt", state.title == HIDDEN and current.display_name not in state.recent)
     check("Beamer: Titel/Runde/Song", state.event_title.startswith("Weihnachtsfeier") and state.song_line == "Song 2"
           and state.round_line == "Runde 1 · Ziel: 1 Reihe")
     key(w, Gdk.KEY_t)

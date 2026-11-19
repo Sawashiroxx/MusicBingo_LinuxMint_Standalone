@@ -213,7 +213,8 @@ class BeamerStateTests(unittest.TestCase):
         hidden = build_beamer_state(svc, revealed=False, timer_text="noch 30 s")
         self.assertEqual((hidden.song_line, hidden.title, hidden.artist), ("Song 2", HIDDEN, ""))
         self.assertEqual(hidden.recent, (first.display_name,))  # aktueller Song nicht verraten
-        self.assertNotIn(second.title, " ".join(hidden.recent) + hidden.title)
+        self.assertNotIn(second.display_name, hidden.recent)  # exakter Vergleich, kein Teiltext („Song 1“ ⊂ „Song 17“)
+        self.assertNotEqual(hidden.title, second.title)
         shown = build_beamer_state(svc, revealed=True, banner="BINGO!")
         self.assertEqual((shown.title, shown.recent, shown.banner), (second.title, (first.display_name,), "BINGO!"))
         self.assertEqual(shown.round_line, "Runde 1 · Ziel: 1 Reihe")
