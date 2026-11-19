@@ -7,7 +7,8 @@ from .models import Song
 _SEPARATOR = re.compile(r"\s+[–—-]\s+")
 _DASH = re.compile(r"\s+[–—]\s+")
 _LINK_SUFFIX = re.compile(r"\s+\|\s+(\S+)\s*$")
-# Kommentar: „#“ allein oder mit Leerzeichen danach. „#SELFIE“ ist ein Songtitel.
+# Kommentar: „# …“ immer; „#Wort“ nur ohne Interpret-Trenner. So bleiben „#Weihnachten“ als
+# Abschnittsüberschrift und „#SELFIE – The Chainsmokers“ als Song erhalten.
 _COMMENT = re.compile(r"^#(\s|#|$)")
 # „Titel –“ am Zeilenende: Titel mit Bindestrich, aber ohne Interpret
 _TRAILING_DASH = re.compile(r"\s+[–—]$")
@@ -17,6 +18,8 @@ def parse_song_line(line: str) -> Song | None:
     """Eine Zeile „Titel – Interpret“ mit optionalem „ | Link“ am Ende."""
     line = line.strip()
     if not line or _COMMENT.match(line):
+        return None
+    if line.startswith("#") and not (_SEPARATOR.search(line) or _TRAILING_DASH.search(line)):
         return None
     link = ""
     match = _LINK_SUFFIX.search(line)
@@ -69,8 +72,8 @@ def format_song(song: Song) -> str:
         if parsed is None or (parsed.title, parsed.artist) != (title, artist):
             # Exotische Gedankenstriche am Rand des Interpreten: als Bindestrich schreiben
             text = f"{title} – " + artist.replace("–", "-").replace("—", "-")
-    elif _SEPARATOR.search(title) or _TRAILING_DASH.search(title):
-        text = f"{title} –"  # sonst würde „Stille Nacht - Heilige Nacht“ zerlegt
+    elif _SEPARATOR.search(title) or _TRAILING_DASH.search(title) or title.startswith("#"):
+        text = f"{title} –"  # sonst würde „Stille Nacht - Heilige Nacht“ zerlegt bzw. „#SELFIE“ Kommentar
     else:
         text = title
     if _COMMENT.match(text):

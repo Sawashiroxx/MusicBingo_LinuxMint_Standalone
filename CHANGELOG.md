@@ -6,6 +6,15 @@
   music.youtube.com öffnen, „Player folgen“ und „Vom Player einlesen“ mit YouTube-Music-Desktop-App oder Browser.
 - Spielleitung: „Player folgen“ in eigener Zeile, damit das Fenster auf 1366-px-Bildschirme passt.
 - Hilfe: Abschnitt YouTube Music, Tastenkürzel T und P ergänzt.
+- Behoben (Prüfung durch Claude Fable 5.2, zwei Durchgänge):
+  - Player beendet/Folgen aus → Song-Timer stoppt, Warnung an die Spielleitung.
+  - Playlist einlesen: gleicher Titel/anderer Interpret, doppelte Titel und ein wiederholter erster Titel
+    beenden das Einlesen nicht mehr vorzeitig.
+  - YouTube Music/Spotify: „ - “ im Titel wird nicht zerlegt.
+  - Lokale Wiedergabe kann keine Netzwerkverbindungen mehr auslösen (getarnte HLS/DASH-Dateien).
+  - Unlesbarer Spielstand wird vor dem Überschreiben gesichert (`sicherungen/unlesbar_*`).
+  - Dritte Bingo-Prüfung derselben Karte, Warnung nach Markieren von Hand, Songliste im Editor
+    (`#SELFIE`, Titel mit „ - “), Grenze 2000 Songs, Spotify-Rückfall auf den Webplayer.
 
 ## 2.3 – November 2026
 

@@ -33,6 +33,15 @@ def scenario(w):
     check("Rückfall öffnet den Webplayer",
           wait(lambda: opened == ["https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC"]))
 
+    # Regression (Fable, 2. Prüfung): gescheitertes Einschalten von „Player folgen“ stoppte einen
+    # normal laufenden Song-Timer
+    w.target_buttons["youtube"].set_active(True)  # kein Browser-Player auf dem Bus
+    w.timer_spin.set_value(30)
+    w._new_song_started()
+    w.follow_switch.set_active(True)
+    check("Folgen ohne passenden Player bleibt aus", not w.follow_switch.get_active())
+    check("Timer läuft weiter", w.timer.phase != "aus")
+
 
 try:
     run(scenario)
