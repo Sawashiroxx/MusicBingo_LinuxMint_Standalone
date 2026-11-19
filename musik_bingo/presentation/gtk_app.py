@@ -1,0 +1,1704 @@
+from __future__ import annotations
+
+import math
+import os
+import sys
+from pathlib import Path
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, Gio, GLib, Gtk, Pango
+
+from musik_bingo.application.game_service import GameService
+from musik_bingo.domain.catalog import Catalog, parse_catalog
+from musik_bingo.domain.card_generator import NotEnoughSongs, required_songs, unique_card_capacity, winning_cells
+from musik_bingo.domain.matching import PlayingTrack, SongMatcher, compare_with_playlist
+from musik_bingo.domain.models import Song
+from musik_bingo.domain.playlist import from_player_tracks, to_csv, to_m3u, to_text
+from musik_bingo.domain.song_list import format_songs, parse_songs
+from musik_bingo.infrastructure import mpris
+from musik_bingo.infrastructure.audio_matcher import match_audio_files
+from musik_bingo.infrastructure.audio_player import AudioPlayer
+from musik_bingo.infrastructure.file_store import FileStore
+from musik_bingo.infrastructure.launcher import has_scheme_handler, open_uri, plan_launch
+from musik_bingo.presentation import dialogs, printing
+from musik_bingo.presentation.dialogs import MODE_APPEND, add_class, escape, field, label
+from musik_bingo.presentation.theme import css_for
+
+from musik_bingo.paths import CATALOG_DIR, DEFAULT_SONGS as DEFAULT_SONGS_PATH, ICON_PATH
+
+DEFAULT_SONGS = DEFAULT_SONGS_PATH.read_text(encoding="utf-8")
+PAGES = ("songs", "cards", "game")
+TARGET_LABELS = {"lokal": "Lokale Dateien", "spotify": "Spotify", "youtube": "YouTube"}
+
+
+def cairo_available() -> bool:
+    """Druck braucht die Cairo-Brücke von PyGObject (Paket python3-gi-cairo)."""
+    try:
+        gi.require_foreign("cairo")
+        return True
+    except ImportError:
+        return False
+
+
+def load_catalogs() -> tuple[list[Catalog], list[str]]:
+    catalogs: list[Catalog] = []
+    errors: list[str] = []
+    for path in sorted(CATALOG_DIR.glob("*.txt")):
+        try:
+            catalogs.append(parse_catalog(path.stem, path.read_text(encoding="utf-8")))
+        except (OSError, ValueError) as error:
+            errors.append(f"{path.name}: {error}")
+    order = {"weihnachten": 0, "charts": 1}
+    catalogs.sort(key=lambda catalog: (order.get(catalog.category, 9), catalog.name))
+    return catalogs, errors
+
+
+class MusikBingoWindow(Gtk.ApplicationWindow):
+    def __init__(self, app: Gtk.Application):
+        super().__init__(application=app, title="Musik Bingo")
+        try:
+            self.set_icon_from_file(str(ICON_PATH))
+        except GLib.Error:
+            self.set_icon_name("audio-x-generic")
+        self.set_default_size(1320, 800)
+        self.set_size_request(1000, 640)
+        self.store = FileStore()
+        self.service = GameService()
+        self.preview_count = 18
+        self.print_per_page = 2
+        self.song_save_source = 0
+        self._loading_state = False
+        self.is_fullscreen = False
+        self.catalogs, catalog_errors = load_catalogs()
+        self.audio_player = None
+        self.audio_error = ""
+        try:
+            self.audio_player = AudioPlayer(on_finished=self._audio_finished, on_error=self._audio_failed)
+        except RuntimeError as error:
+            self.audio_error = str(error)
+        # Externe Player (Spotify, Browser) über MPRIS – nur lokal.
+        self.player: mpris.MprisPlayer | None = None
+        self.player_watch = 0
+        self.player_poll = 0
+        self.last_track_identity = ""
+        self.now_playing: PlayingTrack | None = None
+        self.unmatched_track: PlayingTrack | None = None
+        self.spotify_scheme = has_scheme_handler("spotify")
+        self.reader: mpris.PlaylistReader | None = None
+        self.closing = False
+
+        self.theme = "dark"
+        config_home = Path(os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config")))
+        self.theme_path = config_home / "musik-bingo" / "theme"
+        try:
+            if self.theme_path.read_text(encoding="utf-8").strip() == "light":
+                self.theme = "light"
+        except OSError:
+            pass
+        self.css_provider = Gtk.CssProvider()
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(), self.css_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION
+        )
+        self._build()
+        self._restore()
+        self.connect("key-press-event", self._on_key)
+        self.connect("delete-event", self._before_close)
+        if catalog_errors:
+            self._set_status("Kataloge teilweise nicht lesbar: " + "; ".join(catalog_errors))
+
+    # ================================================================ Aufbau
+
+    def _build(self) -> None:
+        self.header = Gtk.HeaderBar()
+        self.header.set_show_close_button(True)
+        self.header.set_title("Musik Bingo")
+        self.header.set_subtitle("Private Veranstaltung · offline")
+        self.set_titlebar(self.header)
+        menu_button = Gtk.MenuButton()
+        menu_button.set_image(Gtk.Image.new_from_icon_name("open-menu-symbolic", Gtk.IconSize.BUTTON))
+        menu_button.set_tooltip_text("Menü")
+        popover = Gtk.Popover()
+        menu = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        menu.set_border_width(8)
+        self.theme_item = Gtk.ModelButton(text="")
+        for text, handler in (
+            ("Spielstand exportieren …", self._export),
+            ("Spielstand importieren …", self._import),
+            (None, None),
+            ("__theme__", self._toggle_theme),
+            ("Vollbild umschalten (F11)", lambda *_: self._toggle_fullscreen()),
+            (None, None),
+            ("Hilfe & Datenschutz", self._show_help),
+        ):
+            if text is None:
+                menu.pack_start(Gtk.Separator(), False, False, 4)
+                continue
+            item = self.theme_item if text == "__theme__" else Gtk.ModelButton(text=text)
+            item.connect("clicked", handler)
+            menu.pack_start(item, False, False, 0)
+        menu.show_all()
+        popover.add(menu)
+        menu_button.set_popover(popover)
+        self.header.pack_end(menu_button)
+        self.privacy_pill = label("● offline", "pill", "pill-ok", "small")
+        self.privacy_pill.set_valign(Gtk.Align.CENTER)
+        self.privacy_pill.set_tooltip_text(
+            "Die App stellt keine Internetverbindung her und überträgt keine Daten. "
+            "Spotify/YouTube werden nur lokal angesteuert bzw. per Klick im Browser geöffnet."
+        )
+        self.header.pack_end(self.privacy_pill)
+
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        add_class(root, "main-bg")
+        self.add(root)
+        body = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        root.pack_start(body, True, True, 0)
+        body.pack_start(self._build_sidebar(), False, False, 0)
+        self.stack = Gtk.Stack()
+        self.stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        self.stack.set_transition_duration(160)
+        self.stack.add_named(self._build_songs_page(), "songs")
+        self.stack.add_named(self._build_cards_page(), "cards")
+        self.stack.add_named(self._build_game_page(), "game")
+        body.pack_start(self.stack, True, True, 0)
+
+        status_bar = add_class(Gtk.Box(spacing=12), "statusbar")
+        self.status = label("Bereit · Spielstände werden nur lokal gespeichert", "small")
+        self.status.set_ellipsize(Pango.EllipsizeMode.END)
+        status_bar.pack_start(self.status, True, True, 0)
+        status_bar.pack_end(label("Leertaste: ziehen · Rücktaste: zurück · F11: Vollbild", "small"), False, False, 0)
+        root.pack_end(status_bar, False, False, 0)
+        self._apply_theme()
+
+    def _build_sidebar(self) -> Gtk.Widget:
+        sidebar = add_class(Gtk.Box(orientation=Gtk.Orientation.VERTICAL), "sidebar")
+        sidebar.set_size_request(250, -1)
+        brand = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        brand.set_margin_start(22)
+        brand.set_margin_top(20)
+        brand.set_margin_bottom(14)
+        brand.pack_start(label("♪ Musik Bingo", "brand"), False, False, 0)
+        brand.pack_start(label("Spieltisch für eure Feier", "muted", "small"), False, False, 0)
+        sidebar.pack_start(brand, False, False, 0)
+        self.nav = Gtk.ListBox()
+        self.nav.set_selection_mode(Gtk.SelectionMode.SINGLE)
+        for number, (name, title, subtitle) in enumerate((
+            ("songs", "Songs & Playlist", "Liste, Import, Zufallsmix"),
+            ("cards", "Bingokarten", "Vorschau und Druck"),
+            ("game", "Spielleitung", "Ziehen, abspielen, prüfen"),
+        ), start=1):
+            row = Gtk.ListBoxRow()
+            row.page_name = name
+            add_class(row, "nav-row")
+            box = Gtk.Box(spacing=12)
+            badge = label(str(number), "nav-number", xalign=0.5)
+            badge.set_valign(Gtk.Align.CENTER)
+            box.pack_start(badge, False, False, 0)
+            texts = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=1)
+            texts.pack_start(label(title, "nav-title"), False, False, 0)
+            texts.pack_start(label(subtitle, "muted", "small"), False, False, 0)
+            box.pack_start(texts, True, True, 0)
+            row.add(box)
+            self.nav.add(row)
+        self.nav.connect("row-selected", self._nav_selected)
+        sidebar.pack_start(self.nav, False, False, 0)
+
+        summary = add_class(Gtk.Grid(row_spacing=7, column_spacing=10), "summary")
+        self.summary_values: dict[str, Gtk.Label] = {}
+        for row_index, (key, title) in enumerate((
+            ("list", "Songliste"), ("cards", "Karten"), ("drawn", "Gezogen"), ("player", "Wiedergabe"),
+        )):
+            summary.attach(label(title, "muted", "small"), 0, row_index, 1, 1)
+            value = label("–", "summary-value", "small", xalign=1)
+            value.set_hexpand(True)
+            value.set_ellipsize(Pango.EllipsizeMode.END)
+            value.set_max_width_chars(16)
+            self.summary_values[key] = value
+            summary.attach(value, 1, row_index, 1, 1)
+        sidebar.pack_end(summary, False, False, 0)
+        return sidebar
+
+    def _page(self, title: str, subtitle: str) -> tuple[Gtk.Widget, Gtk.Box, Gtk.Box]:
+        outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        outer.set_border_width(24)
+        head = Gtk.Box(spacing=12)
+        titles = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        titles.pack_start(label(title, "page-title"), False, False, 0)
+        titles.pack_start(label(subtitle, "muted", wrap=True), False, False, 0)
+        head.pack_start(titles, True, True, 0)
+        outer.pack_start(head, False, False, 0)
+        return outer, head, outer
+
+    @staticmethod
+    def _panel(title: str, subtitle: str = "") -> tuple[Gtk.Box, Gtk.Box]:
+        frame = add_class(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12), "panel")
+        frame.pack_start(label(title, "panel-title"), False, False, 0)
+        if subtitle:
+            frame.pack_start(label(subtitle, "muted", "small", wrap=True), False, False, 0)
+        return frame, frame
+
+    @staticmethod
+    def _button(text: str, handler, *classes: str, icon: str = "", tooltip: str = "") -> Gtk.Button:
+        button = Gtk.Button(label=text)
+        if icon:
+            button.set_image(Gtk.Image.new_from_icon_name(icon, Gtk.IconSize.BUTTON))
+            button.set_always_show_image(True)
+        if tooltip:
+            button.set_tooltip_text(tooltip)
+        button.connect("clicked", handler)
+        add_class(button, *classes)
+        return button
+
+    # ---------------------------------------------------------------- Seite 1
+
+    def _build_songs_page(self) -> Gtk.Widget:
+        page, _head, body = self._page(
+            "Songs & Playlist",
+            "Die Songliste ist die Grundlage der Karten. Damit Musik und Karten übereinstimmen: "
+            "Playlist importieren oder Liste als Playlist exportieren.",
+        )
+        toolbar = Gtk.FlowBox()
+        toolbar.set_selection_mode(Gtk.SelectionMode.NONE)
+        toolbar.set_max_children_per_line(8)
+        toolbar.set_column_spacing(8)
+        toolbar.set_row_spacing(8)
+        catalog_button = Gtk.MenuButton(label="Liste einfügen ▾")
+        catalog_button.set_tooltip_text("Mitgelieferte Charts- und Weihnachtslisten anhängen")
+        catalog_popover = Gtk.Popover()
+        catalog_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+        catalog_box.set_border_width(8)
+        for catalog in self.catalogs:
+            item = Gtk.ModelButton(text=f"{catalog.name} ({len(catalog.songs)})")
+            item.set_tooltip_text(catalog.source)
+            item.connect("clicked", self._insert_catalog, catalog)
+            catalog_box.pack_start(item, False, False, 0)
+        catalog_box.show_all()
+        catalog_popover.add(catalog_box)
+        catalog_button.set_popover(catalog_popover)
+        for widget in (
+            self._button("Playlist importieren …", self._import_playlist, "primary", icon="document-open-symbolic",
+                         tooltip="CSV (z. B. Spotify-Export), M3U oder kopierte YouTube-Titel"),
+            self._button("Vom Player einlesen …", self._read_from_player, icon="media-playlist-consecutive-symbolic",
+                         tooltip="Die laufende Playlist in Spotify/YouTube Titel für Titel einlesen"),
+            self._button("Zufallsmix …", self._random_mix, icon="media-playlist-shuffle-symbolic",
+                         tooltip="Zufällige Mischung aus aktuellen Charts und Weihnachtsliedern"),
+            catalog_button,
+            self._button("Als Playlist exportieren …", self._export_playlist, icon="document-save-as-symbolic",
+                         tooltip="Text/CSV für Spotify-/YouTube-Import oder M3U"),
+            self._button("Mit Playlist abgleichen …", self._compare_playlist, icon="emblem-ok-symbolic",
+                         tooltip="Prüfen, ob Playlist und Bingo-Songs identisch sind"),
+            self._button("Leeren", self._clear_songs, "danger", icon="edit-clear-all-symbolic"),
+        ):
+            toolbar.add(widget)
+        body.pack_start(toolbar, False, False, 0)
+
+        columns = Gtk.Box(spacing=16)
+        body.pack_start(columns, True, True, 0)
+        song_frame, song_box = self._panel(
+            "Songliste", "Pro Zeile: Titel – Interpret. Optional mit „ | “ und Spotify-/YouTube-Link. "
+                         "Zeilen mit # sind Kommentare. Doppelte Songs werden automatisch ignoriert.")
+        columns.pack_start(song_frame, True, True, 0)
+        self.song_view = Gtk.TextView()
+        self.song_view.set_wrap_mode(Gtk.WrapMode.WORD_CHAR)
+        for setter in (self.song_view.set_left_margin, self.song_view.set_right_margin,
+                       self.song_view.set_top_margin, self.song_view.set_bottom_margin):
+            setter(10)
+        self.song_buffer = self.song_view.get_buffer()
+        self.song_buffer.set_text(DEFAULT_SONGS)
+        self.song_buffer.connect("changed", self._song_changed)
+        song_scroll = add_class(Gtk.ScrolledWindow(), "editor")
+        song_scroll.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
+        song_scroll.set_min_content_height(300)
+        song_scroll.add(self.song_view)
+        song_box.pack_start(song_scroll, True, True, 0)
+        self.pool_count_label = label("", "small")
+        song_box.pack_start(self.pool_count_label, False, False, 0)
+
+        right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        right.set_size_request(340, -1)
+        columns.pack_start(right, False, False, 0)
+        settings_frame, settings = self._panel("Karten vorbereiten", "Jede Karte bekommt eine andere Songkombination.")
+        right.pack_start(settings_frame, False, False, 0)
+        self.size_combo = Gtk.ComboBoxText()
+        for value in (3, 4, 5):
+            self.size_combo.append_text(f"{value} × {value}")
+        self.size_combo.set_active(2)
+        self.size_combo.connect("changed", self._update_field_count)
+        self.count_spin = Gtk.SpinButton.new_with_range(1, 500, 1)
+        self.count_spin.set_value(30)
+        self.count_spin.connect("value-changed", self._count_changed)
+        grid = Gtk.Grid(column_spacing=12, row_spacing=10, column_homogeneous=True)
+        grid.attach(field("Kartengröße", self.size_combo), 0, 0, 1, 1)
+        grid.attach(field("Anzahl Karten", self.count_spin), 1, 0, 1, 1)
+        settings.pack_start(grid, False, False, 0)
+        self.free_check = Gtk.CheckButton(label="Freies Mittelfeld (bei 3×3 und 5×5)")
+        self.free_check.set_active(True)
+        self.free_check.connect("toggled", self._update_field_count)
+        settings.pack_start(self.free_check, False, False, 0)
+        self.diagonal_check = Gtk.CheckButton(label="Diagonalen zählen als Bingo")
+        self.diagonal_check.set_tooltip_text("Gilt ab der nächsten Kartenerzeugung.")
+        self.diagonal_check.connect("toggled", self._save_settings)
+        settings.pack_start(self.diagonal_check, False, False, 0)
+        self.page_combo = Gtk.ComboBoxText()
+        self.page_combo.append_text("2 Karten pro A4-Seite")
+        self.page_combo.append_text("1 Karte pro A4-Seite")
+        self.page_combo.set_active(0)
+        self.page_combo.connect("changed", self._set_page_count)
+        settings.pack_start(field("Drucklayout", self.page_combo), False, False, 0)
+        self.field_count = label("24 Songs je Karte", "muted", "small")
+        settings.pack_start(self.field_count, False, False, 0)
+        generate = self._button("Karten erzeugen", self._generate, "primary", "big", icon="view-grid-symbolic")
+        settings.pack_start(generate, False, False, 4)
+        settings.pack_start(label("Neue Karten starten eine neue Runde. Die Liste links kann vorher frei "
+                                  "bearbeitet werden – laufende Runden bleiben unberührt.",
+                                  "muted", "small", wrap=True), False, False, 0)
+
+        audio_frame, audio_box = self._panel("Eigene Musikdateien",
+                                             "Optional: MP3/FLAC/OGG aus einem Ordner zuordnen, "
+                                             "Dateiname „Titel – Interpret.mp3“.")
+        audio_box.pack_start(self._button("Ordner zuordnen …", self._match_audio_folder,
+                                          icon="folder-music-symbolic"), False, False, 0)
+        right.pack_start(audio_frame, False, False, 0)
+        self._update_song_stats()
+        return page
+
+    # ---------------------------------------------------------------- Seite 2
+
+    def _build_cards_page(self) -> Gtk.Widget:
+        page, head, body = self._page("Bingokarten", "Vorschau der ersten Karten. Gedruckt werden alle.")
+        self.cards_meta = label("", "pill", "small")
+        self.cards_meta.set_valign(Gtk.Align.CENTER)
+        head.pack_start(self.cards_meta, False, False, 0)
+        self.print_button = self._button("Drucken / PDF …", self._print, "primary", "big", icon="printer-symbolic")
+        self.print_button.set_valign(Gtk.Align.CENTER)
+        head.pack_end(self.print_button, False, False, 0)
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.cards_flow = Gtk.FlowBox()
+        self.cards_flow.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.cards_flow.set_column_spacing(16)
+        self.cards_flow.set_row_spacing(16)
+        self.cards_flow.set_max_children_per_line(4)
+        self.cards_flow.set_valign(Gtk.Align.START)
+        scroll.add(self.cards_flow)
+        body.pack_start(scroll, True, True, 0)
+        self._render_cards()
+        return page
+
+    # ---------------------------------------------------------------- Seite 3
+
+    def _build_game_page(self) -> Gtk.Widget:
+        page, head, body = self._page("Spielleitung", "Songs ziehen, abspielen und Gewinner prüfen.")
+        self.rule_pill = label("", "pill", "small")
+        self.rule_pill.set_valign(Gtk.Align.CENTER)
+        head.pack_end(self.rule_pill, False, False, 0)
+        columns = Gtk.Box(spacing=18)
+        body.pack_start(columns, True, True, 0)
+        left_scroll = Gtk.ScrolledWindow()
+        left_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        left.set_margin_end(6)
+        left_scroll.add(left)
+        columns.pack_start(left_scroll, True, True, 0)
+
+        # Wiedergabequelle
+        source = add_class(Gtk.Box(spacing=12), "panel-flat")
+        source.pack_start(label("Wiedergabe über", "tiny", "muted"), False, False, 0)
+        targets = add_class(Gtk.Box(spacing=0), "linked")
+        self.target_buttons: dict[str, Gtk.RadioButton] = {}
+        group = None
+        for key in ("lokal", "spotify", "youtube"):
+            button = Gtk.RadioButton.new_with_label_from_widget(group, TARGET_LABELS[key])
+            button.set_mode(False)
+            group = group or button
+            button.connect("toggled", self._target_changed, key)
+            targets.pack_start(button, False, False, 0)
+            self.target_buttons[key] = button
+        source.pack_start(targets, False, False, 0)
+        follow_box = Gtk.Box(spacing=8)
+        self.follow_switch = Gtk.Switch()
+        self.follow_switch.set_valign(Gtk.Align.CENTER)
+        self.follow_switch.connect("notify::active", self._follow_toggled)
+        follow_box.pack_start(self.follow_switch, False, False, 0)
+        follow_label = label("Player folgen")
+        follow_label.set_tooltip_text(
+            "Die Playlist läuft in Spotify oder YouTube (gerne im Zufallsmodus). Die App zieht automatisch "
+            "den Song, der gerade läuft, und warnt, wenn er nicht auf den Karten steht."
+        )
+        follow_box.pack_start(follow_label, False, False, 0)
+        source.pack_end(follow_box, False, False, 0)
+        left.pack_start(source, False, False, 0)
+
+        # Jetzt-Anzeige
+        self.hero = add_class(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8), "hero")
+        self.now_label = label("", "hero-kicker", xalign=0.5)
+        self.song_label = label("Musik Bingo", "song-title", wrap=True, xalign=0.5)
+        self.song_label.set_justify(Gtk.Justification.CENTER)
+        self.artist_label = label("", "song-artist", "hero-muted", wrap=True, xalign=0.5)
+        self.artist_label.set_justify(Gtk.Justification.CENTER)
+        self.source_chip = label("", "chip", "small", xalign=0.5)
+        self.source_chip.set_halign(Gtk.Align.CENTER)
+        self.hero.pack_start(self.now_label, False, False, 0)
+        self.hero.pack_start(self.song_label, False, False, 6)
+        self.hero.pack_start(self.artist_label, False, False, 0)
+        self.hero.pack_start(self.source_chip, False, False, 6)
+        progress_row = Gtk.Box(spacing=12)
+        self.progress = Gtk.ProgressBar()
+        self.progress.set_valign(Gtk.Align.CENTER)
+        progress_row.pack_start(self.progress, True, True, 0)
+        self.progress_label = label("", "hero-muted", "small")
+        progress_row.pack_start(self.progress_label, False, False, 0)
+        self.hero.pack_end(progress_row, False, False, 0)
+        left.pack_start(self.hero, False, False, 0)
+
+        # Warnung: läuft, steht aber nicht auf den Karten
+        self.warning_revealer = Gtk.Revealer()
+        warning = add_class(Gtk.Box(spacing=12), "warning-box")
+        self.warning_label = label("", wrap=True)
+        warning.pack_start(self.warning_label, True, True, 0)
+        warning.pack_end(self._button("Überspringen", self._skip_unmatched, icon="media-skip-forward-symbolic"),
+                         False, False, 0)
+        warning.pack_end(self._button("Ausblenden", lambda *_: self._hide_warning(), "flat"), False, False, 0)
+        self.warning_revealer.add(warning)
+        left.pack_start(self.warning_revealer, False, False, 0)
+
+        controls = Gtk.Grid(column_spacing=10, row_spacing=10, column_homogeneous=True)
+        self.draw_button = self._button("Nächsten Song ziehen", self._draw_next, "primary", "big",
+                                        icon="media-playlist-shuffle-symbolic")
+        self.undo_button = self._button("Zurück", self._undo, "big", icon="edit-undo-symbolic")
+        self.verify_button = self._button("Bingo prüfen", self._verify_bingo, "big", icon="emblem-ok-symbolic")
+        self.shuffle_button = self._button("Neu mischen", self._reshuffle, icon="view-refresh-symbolic")
+        controls.attach(self.draw_button, 0, 0, 2, 1)
+        controls.attach(self.undo_button, 2, 0, 1, 1)
+        controls.attach(self.verify_button, 3, 0, 1, 1)
+        left.pack_start(controls, False, False, 0)
+
+        play_panel = add_class(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10), "panel-flat")
+        play_row = Gtk.Box(spacing=8)
+        self.audio_play_button = self._button("Abspielen", self._play_audio, icon="media-playback-start-symbolic")
+        self.audio_pause_button = self._button("Pause", self._pause_audio, icon="media-playback-pause-symbolic")
+        self.audio_stop_button = self._button("Stopp", self._stop_audio, icon="media-playback-stop-symbolic")
+        self.audio_assign_button = self._button("Datei zuordnen …", self._assign_audio_file, "flat")
+        for button in (self.audio_play_button, self.audio_pause_button, self.audio_stop_button):
+            play_row.pack_start(button, False, False, 0)
+        play_row.pack_end(self.audio_assign_button, False, False, 0)
+        play_row.pack_end(self.shuffle_button, False, False, 0)
+        play_panel.pack_start(play_row, False, False, 0)
+        self.auto_play_check = Gtk.CheckButton(label="Beim Ziehen automatisch abspielen")
+        self.auto_play_check.connect("toggled", self._autoplay_changed)
+        play_panel.pack_start(self.auto_play_check, False, False, 0)
+        self.audio_status = label("", "muted", "small", wrap=True)
+        play_panel.pack_start(self.audio_status, False, False, 0)
+        left.pack_start(play_panel, False, False, 0)
+
+        history_frame, history = self._panel("Zuletzt gezogen")
+        self.history = Gtk.FlowBox()
+        self.history.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.history.set_max_children_per_line(3)
+        self.history.set_column_spacing(8)
+        self.history.set_row_spacing(8)
+        history.pack_start(self.history, False, False, 0)
+        left.pack_start(history_frame, False, False, 0)
+
+        pool_frame, pool_content = self._panel("Songpool", "Doppelklick markiert einen Song von Hand als gezogen.")
+        pool_frame.set_size_request(330, -1)
+        columns.pack_start(pool_frame, False, False, 0)
+        self.pool_meta = label("", "muted", "small")
+        pool_content.pack_start(self.pool_meta, False, False, 0)
+        self.pool_search = Gtk.SearchEntry()
+        self.pool_search.set_placeholder_text("Song suchen …")
+        self.pool_search.connect("search-changed", lambda *_: self.pool_list.invalidate_filter())
+        pool_content.pack_start(self.pool_search, False, False, 0)
+        pool_scroll = Gtk.ScrolledWindow()
+        pool_scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.pool_list = Gtk.ListBox()
+        self.pool_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.pool_list.set_activate_on_single_click(False)
+        self.pool_list.set_filter_func(self._pool_filter)
+        self.pool_list.connect("row-activated", self._pool_row_activated)
+        pool_scroll.add(self.pool_list)
+        pool_content.pack_start(pool_scroll, True, True, 0)
+        self._render_caller()
+        return page
+
+    # ================================================================ Zustand
+
+    def _apply_service_to_widgets(self, service: GameService) -> None:
+        self._loading_state = True
+        try:
+            self.service = service
+            self.song_buffer.set_text(service.song_text)
+            self.size_combo.set_active(service.card_size - 3)
+            self.free_check.set_active(service.free_space)
+            self.diagonal_check.set_active(service.diagonal_wins)
+            self.count_spin.set_value(service.card_count)
+            self.page_combo.set_active(1 if service.per_page == 1 else 0)
+            self.auto_play_check.set_active(service.auto_play)
+            self.target_buttons[service.playback_target].set_active(True)
+            self.print_per_page = service.per_page
+            self.follow_switch.set_active(False)
+        finally:
+            self._loading_state = False
+        self._update_field_count()
+        self._render_cards()
+        self._render_caller()
+
+    def _restore(self) -> None:
+        try:
+            saved = self.store.load()
+        except Exception as error:  # noqa: BLE001 – kaputte Datei darf den Start nie verhindern
+            dialogs.message(self, Gtk.MessageType.WARNING, "Spielstand konnte nicht geladen werden",
+                            f"{error}\n\nDie App startet mit einer neuen Runde. Die alte Datei bleibt "
+                            "unverändert, bis du etwas änderst.")
+            self.nav.select_row(self.nav.get_row_at_index(0))
+            return
+        if saved is None:
+            self.nav.select_row(self.nav.get_row_at_index(0))
+            self._update_summary()
+            return
+        follow = saved.follow_player
+        self._apply_service_to_widgets(saved)
+        self.nav.select_row(self.nav.get_row_at_index(2 if saved.game.cards else 0))
+        self._set_status("Gespeicherter Spielstand geladen")
+        if follow and saved.playback_target in ("spotify", "youtube"):
+            # Folgen-Modus erst nach dem Aufbau des Fensters versuchen (ohne Fehlermeldung).
+            GLib.idle_add(self._resume_follow)
+
+    def _resume_follow(self) -> bool:
+        if self._connect_player(quiet=True):
+            self.follow_switch.set_active(True)
+        else:
+            self.service.follow_player = False
+            self._set_status("Player folgen ist aus: Spotify/YouTube läuft gerade nicht.")
+        return False
+
+    def _song_text(self) -> str:
+        start, end = self.song_buffer.get_bounds()
+        return self.song_buffer.get_text(start, end, True)
+
+    def _set_song_list(self, songs: list[Song], mode: str) -> tuple[int, int]:
+        """Ersetzt/ergänzt die Songliste im Editor. Gibt (neu, doppelt) zurück."""
+        if mode == MODE_APPEND:
+            existing = parse_songs(self._song_text())
+            keys = {song.key for song in existing}
+            new = [song for song in songs if song.key not in keys]
+            text = self._song_text().rstrip("\n")
+            addition = format_songs(new)
+            self.song_buffer.set_text(f"{text}\n{addition}" if text and addition else (text or addition))
+            result = (len(new), len(songs) - len(new))
+        else:
+            self.song_buffer.set_text(format_songs(songs))
+            result = (len(songs), 0)
+        self._save_settings()
+        return result
+
+    def _active_or_draft_songs(self) -> tuple[list[Song], str]:
+        if self.service.game.songs:
+            return list(self.service.game.songs), "aktuelle Runde"
+        return parse_songs(self._song_text()), "Songliste (noch keine Karten erzeugt)"
+
+    # ================================================================ Seite 1: Aktionen
+
+    def _import_playlist(self, _button) -> None:
+        outcome = dialogs.import_playlist_dialog(self)
+        if outcome is None:
+            return
+        result, mode = outcome
+        added, duplicate = self._set_song_list(result.songs, mode)
+        details = [f"{added} Songs übernommen"]
+        if duplicate:
+            details.append(f"{duplicate} schon vorhanden")
+        if result.skipped:
+            details.append(f"{len(result.skipped)} Zeilen übersprungen")
+        self._set_status("Playlist importiert: " + " · ".join(details))
+
+    def _random_mix(self, _button) -> None:
+        if not self.catalogs:
+            dialogs.message(self, Gtk.MessageType.ERROR, "Keine Songlisten gefunden",
+                            f"Im Ordner {CATALOG_DIR} liegen keine lesbaren Kataloge.")
+            return
+        outcome = dialogs.mix_dialog(self, self.catalogs)
+        if outcome is None:
+            return
+        result, mode = outcome
+        added, _duplicate = self._set_song_list(result.songs, mode)
+        text = f"Zufallsmix: {result.christmas} Weihnachtslieder + {result.charts} Chart-Hits"
+        if result.shortfall:
+            text += f" · {result.shortfall} weniger als gewünscht (Listen erschöpft)"
+        if mode == MODE_APPEND:
+            text += f" · {added} neu angehängt"
+        self._set_status(text)
+
+    def _insert_catalog(self, _button, catalog: Catalog) -> None:
+        added, duplicate = self._set_song_list(catalog.songs, MODE_APPEND)
+        self._set_status(f"„{catalog.name}“: {added} Songs angehängt" + (f", {duplicate} schon vorhanden" if duplicate else ""))
+
+    def _clear_songs(self, _button) -> None:
+        if dialogs.confirm(self, "Songliste leeren?",
+                           "Die Liste im Editor wird geleert. Erzeugte Karten und die laufende Runde bleiben erhalten.",
+                           "Leeren"):
+            self.song_buffer.set_text("")
+            self._save_settings()
+
+    def _export_playlist(self, _button) -> None:
+        songs, source = self._active_or_draft_songs()
+        if not songs:
+            dialogs.message(self, Gtk.MessageType.INFO, "Nichts zu exportieren", "Die Songliste ist leer.")
+            return
+        dialog = Gtk.FileChooserDialog(title=f"Als Playlist exportieren ({source})", transient_for=self,
+                                       action=Gtk.FileChooserAction.SAVE)
+        dialog.add_buttons("Abbrechen", Gtk.ResponseType.CANCEL, "Exportieren", Gtk.ResponseType.ACCEPT)
+        dialog.set_do_overwrite_confirmation(True)
+        filters = {}
+        for key, name, pattern in (
+            ("txt", "Text „Interpret - Titel“ – für TuneMyMusic/Soundiiz → Spotify/YouTube", "*.txt"),
+            ("csv", "CSV (Titel, Interpret, Link)", "*.csv"),
+            ("m3u", "M3U-Playlist (lokale Dateien/YouTube-Links, z. B. für VLC)", "*.m3u"),
+        ):
+            file_filter = Gtk.FileFilter()
+            file_filter.set_name(name)
+            file_filter.add_pattern(pattern)
+            dialog.add_filter(file_filter)
+            filters[key] = file_filter
+        dialog.set_current_name("musik-bingo-playlist.txt")
+
+        def filter_changed(*_args):
+            current = dialog.get_current_name() or "musik-bingo-playlist"
+            stem = current.rsplit(".", 1)[0]
+            for key, file_filter in filters.items():
+                if dialog.get_filter() == file_filter:
+                    dialog.set_current_name(f"{stem}.{key}")
+        dialog.connect("notify::filter", filter_changed)
+        response = dialog.run()
+        filename = dialog.get_filename() if response == Gtk.ResponseType.ACCEPT else None
+        dialog.destroy()
+        if not filename:
+            return
+        path = Path(filename)
+        suffix = path.suffix.casefold()
+        try:
+            if suffix == ".csv":
+                content, note = to_csv(songs), ""
+            elif suffix in (".m3u", ".m3u8"):
+                content, skipped = to_m3u(songs, self.service.audio_files)
+                note = f" · {skipped} Songs ohne Datei/Link ausgelassen" if skipped else ""
+            else:
+                content, note = to_text(songs), ""
+            path.write_text(content, encoding="utf-8")
+        except OSError as error:
+            dialogs.message(self, Gtk.MessageType.ERROR, "Export fehlgeschlagen", str(error))
+            return
+        self._set_status(f"{len(songs)} Songs ({source}) als Playlist exportiert: {path.name}{note}")
+
+    def _compare_playlist(self, _button) -> None:
+        songs, source = self._active_or_draft_songs()
+        if not songs:
+            dialogs.message(self, Gtk.MessageType.INFO, "Kein Abgleich möglich", "Die Songliste ist leer.")
+            return
+        outcome = dialogs.import_playlist_dialog(self)
+        if outcome is None:
+            return
+        result, _mode = outcome
+        missing, extra = compare_with_playlist(songs, result.songs)
+        if not missing and not extra:
+            dialogs.message(self, Gtk.MessageType.INFO, "Playlist passt genau",
+                            f"Alle {len(songs)} Songs der {source} sind in der Playlist – und umgekehrt.")
+            return
+        dialogs.list_dialog(
+            self, "Abgleich mit Playlist",
+            f"Verglichen: {source} ({len(songs)} Songs) mit der Playlist ({len(result.songs)} Songs).",
+            [("Auf den Karten, aber nicht in der Playlist – wird nie gespielt", [s.display_name for s in missing]),
+             ("In der Playlist, aber nicht auf den Karten – vorher entfernen", [s.display_name for s in extra])],
+        )
+
+    def _read_from_player(self, _button) -> None:
+        if self.follow_switch.get_active():
+            dialogs.message(self, Gtk.MessageType.INFO, "Erst „Player folgen“ ausschalten",
+                            "Beim Einlesen springt der Player von Titel zu Titel. Im Folgen-Modus würden "
+                            "dabei alle Songs der laufenden Runde gezogen.")
+            return
+        players = mpris.list_players()
+        if not players:
+            dialogs.message(
+                self, Gtk.MessageType.INFO, "Kein Player gefunden",
+                "Starte zuerst Spotify (Desktop-App) oder spiele die YouTube-Playlist im Browser ab. "
+                "Dann erneut versuchen.")
+            return
+        dialog, content, _ok = dialogs.base_dialog(self, "Playlist vom Player einlesen", "Einlesen starten", 560)
+        content.pack_start(label(
+            "So geht's:\n1. Playlist im Player öffnen, Zufallswiedergabe aus, Wiederholen an.\n"
+            "2. Den ersten Titel der Playlist starten (Lautstärke ruhig leise stellen).\n"
+            "3. Hier „Einlesen starten“ – die App springt Titel für Titel weiter und notiert sie.\n\n"
+            "Das geschieht lokal über die Player-Schnittstelle des Rechners, ohne Internetzugriff der App.",
+            wrap=True), False, False, 0)
+        combo = Gtk.ComboBoxText()
+        for info in players:
+            combo.append(info.bus_name, info.identity)
+        chosen = mpris.choose_player(players, self.service.player_name, self.service.playback_target)
+        combo.set_active_id((chosen or players[0]).bus_name)
+        content.pack_start(field("Player", combo), False, False, 0)
+        mode_box, append = dialogs.mode_selector()
+        content.pack_start(mode_box, False, False, 0)
+        dialog.show_all()
+        response = dialog.run()
+        bus_name = combo.get_active_id()
+        mode = MODE_APPEND if append.get_active() else "replace"
+        dialog.destroy()
+        if response != Gtk.ResponseType.OK or not bus_name:
+            return
+        info = next(p for p in players if p.bus_name == bus_name)
+        try:
+            player = mpris.MprisPlayer(info)
+        except RuntimeError as error:
+            dialogs.message(self, Gtk.MessageType.ERROR, "Player nicht erreichbar", str(error))
+            return
+
+        progress = Gtk.Dialog(title="Playlist wird eingelesen", transient_for=self, modal=True, use_header_bar=True)
+        progress.add_button("Abbrechen", Gtk.ResponseType.CANCEL)
+        box = progress.get_content_area()
+        box.set_border_width(20)
+        box.set_spacing(10)
+        count_label = label("Starte …", "panel-title")
+        box.pack_start(count_label, False, False, 0)
+        spinner = Gtk.Spinner()
+        spinner.start()
+        box.pack_start(spinner, False, False, 0)
+        progress.set_default_size(380, -1)
+
+        def on_progress(count: int) -> None:
+            count_label.set_text(f"{count} Titel gelesen …")
+
+        def on_done(tracks: list[PlayingTrack], reason: str, complete: bool) -> None:
+            progress.destroy()
+            player.close()
+            self.reader = None
+            if self.closing:
+                return
+            if not complete:
+                # Abbruch/Fehler: bestehende Songliste nicht durch ein Teilergebnis ersetzen.
+                dialogs.message(self, Gtk.MessageType.INFO, "Nichts übernommen",
+                                f"{reason}\n\nBis dahin gelesen: {len(tracks)} Titel." if tracks else reason)
+                return
+            cleaned = from_player_tracks(tracks).songs
+            if not cleaned:
+                dialogs.message(self, Gtk.MessageType.WARNING, "Keine Titel eingelesen", reason)
+                return
+            added, duplicate = self._set_song_list(cleaned, mode)
+            self._set_status(f"{reason} {added} Songs übernommen" + (f", {duplicate} doppelt" if duplicate else ""))
+
+        def on_response(_dialog, _response):
+            if self.reader:
+                self.reader.cancel()
+        progress.connect("response", on_response)
+        progress.show_all()
+        self.reader = mpris.PlaylistReader(player, on_progress, on_done)
+        self.reader.start()
+
+    def _match_audio_folder(self, _button) -> None:
+        dialog = Gtk.FileChooserDialog(title="Ordner mit Audiodateien auswählen", transient_for=self,
+                                       action=Gtk.FileChooserAction.SELECT_FOLDER)
+        dialog.add_buttons("Abbrechen", Gtk.ResponseType.CANCEL, "Ordner auswählen", Gtk.ResponseType.ACCEPT)
+        response = dialog.run()
+        folder = Path(dialog.get_filename()) if response == Gtk.ResponseType.ACCEPT and dialog.get_filename() else None
+        dialog.destroy()
+        if folder is None:
+            return
+        try:
+            songs = self.service.game.songs or parse_songs(self._song_text())
+            matched, unmatched = match_audio_files(songs, folder)
+            self.service.audio_files.update(matched)
+            self._save()
+            result = f"{len(matched)} Audiodateien zugeordnet · {len(unmatched)} Songs ohne eindeutigen Treffer"
+            if self.audio_player is None:
+                result += " · Audioplayer auf diesem System nicht verfügbar"
+            self._set_status(result)
+            self._update_audio_controls()
+        except (OSError, ValueError) as error:
+            dialogs.message(self, Gtk.MessageType.ERROR, "Audioordner konnte nicht gelesen werden", str(error))
+
+    # ================================================================ Karten
+
+    def _generate(self, _button) -> None:
+        try:
+            song_text = self._song_text()
+            songs = parse_songs(song_text)
+            size = self.size_combo.get_active() + 3
+            free_space = self.free_check.get_active()
+            self.count_spin.update()
+            count = self.count_spin.get_value_as_int()
+            needed = required_songs(size, free_space)
+            capacity = unique_card_capacity(songs, size, free_space)
+            if len(songs) < needed:
+                raise NotEnoughSongs(f"Mindestens {needed} eindeutige Songs werden benötigt; aktuell sind es {len(songs)}.")
+            if capacity < count:
+                raise ValueError(f"Mit dieser Songliste sind höchstens {capacity} unterschiedliche Karten möglich.")
+            if self.service.game.cards and not dialogs.confirm(
+                self, "Neue Runde vorbereiten?",
+                "Die vorhandenen Karten werden ersetzt und der Ziehfortschritt wird zurückgesetzt.",
+                "Neue Karten erzeugen",
+            ):
+                return
+            self.service.set_song_text(song_text)
+            cards = self.service.create_cards(size, free_space, count, self.diagonal_check.get_active())
+            self._stop_all_playback()
+            self._hide_warning()
+            self.last_track_identity = ""
+            self._render_cards()
+            self._render_caller()
+            self._save()
+            self._select_page("cards")
+            self._set_status(f"{len(cards)} Karten aus {len(songs)} Songs erzeugt")
+        except (ValueError, NotEnoughSongs) as error:
+            dialogs.message(self, Gtk.MessageType.WARNING, "Karten konnten nicht erzeugt werden", str(error))
+
+    def _render_cards(self) -> None:
+        for child in self.cards_flow.get_children():
+            self.cards_flow.remove(child)
+        game = self.service.game
+        cards = game.cards[: self.preview_count]
+        size = game.size
+        free = game.free_space and size % 2 == 1
+        if not cards:
+            empty = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+            empty.set_margin_top(60)
+            empty.pack_start(label("Noch keine Karten", "page-title", xalign=0.5), False, False, 0)
+            empty.pack_start(label("Lege unter „Songs & Playlist“ die Liste und Kartengröße fest und klicke "
+                                   "„Karten erzeugen“.", "muted", xalign=0.5, wrap=True), False, False, 0)
+            self.cards_flow.add(empty)
+        cell_width = {3: 104, 4: 80, 5: 64}.get(size, 64)
+        self.cards_flow.set_min_children_per_line(3 if size == 3 else 2)
+        for number, card in enumerate(cards, start=1):
+            frame = add_class(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8), "bingo-card")
+            head = add_class(Gtk.Box(), "card-head")
+            head.pack_start(label("♪ MUSIK BINGO"), False, False, 0)
+            head.pack_end(label(f"#{number}"), False, False, 0)
+            frame.pack_start(head, False, False, 0)
+            grid = Gtk.Grid(column_spacing=3, row_spacing=3, column_homogeneous=True, row_homogeneous=True)
+            songs = iter(card.songs)
+            for index in range(size * size):
+                is_free = free and index == size * size // 2
+                cell = label("★ FREI" if is_free else next(songs).display_name, "cell", wrap=True, xalign=0.5)
+                cell.set_justify(Gtk.Justification.CENTER)
+                cell.set_lines(4)
+                cell.set_ellipsize(Pango.EllipsizeMode.END)
+                cell.set_max_width_chars(10)
+                cell.set_size_request(cell_width, 54)
+                if is_free:
+                    add_class(cell, "cell-free")
+                grid.attach(cell, index % size, index // size, 1, 1)
+            frame.pack_start(grid, True, True, 0)
+            self.cards_flow.add(frame)
+        self.cards_flow.show_all()
+        total = len(game.cards)
+        self.cards_meta.set_text(
+            f"{total} Karten · {size} × {size}" + (f" · Vorschau {min(total, self.preview_count)}" if total > self.preview_count else "")
+            if total else "keine Karten")
+        self.print_button.set_sensitive(total > 0)
+        self._update_summary()
+
+    def _print(self, _button) -> None:
+        if not self.service.game.cards:
+            return
+        if not cairo_available():
+            dialogs.message(self, Gtk.MessageType.ERROR, "Drucken nicht möglich",
+                            "Für den Druck fehlt das Paket python3-gi-cairo. Bitte im Terminal installieren:\n\n"
+                            "sudo apt install python3-gi-cairo")
+            return
+        operation = Gtk.PrintOperation()
+        operation.set_job_name("Musik Bingo Karten")
+        operation.set_n_pages(math.ceil(len(self.service.game.cards) / self.print_per_page))
+        operation.set_unit(Gtk.Unit.POINTS)
+        operation.connect("draw-page", self._draw_print_page)
+        try:
+            operation.run(Gtk.PrintOperationAction.PRINT_DIALOG, self)
+        except GLib.Error as error:
+            dialogs.message(self, Gtk.MessageType.ERROR, "Druckdialog fehlgeschlagen", str(error))
+
+    def _draw_print_page(self, operation, context, page_number: int) -> None:
+        cr = context.get_cairo_context()
+        width, height = context.get_width(), context.get_height()
+        margin = 18
+        gap = 22
+        count = self.print_per_page
+        card_h = (height - 2 * margin - gap * (count - 1)) / count
+        first = page_number * count
+        for offset in range(count):
+            card_index = first + offset
+            if card_index >= len(self.service.game.cards):
+                break
+            y = margin + offset * (card_h + gap)
+            self._draw_card(cr, self.service.game.cards[card_index], card_index + 1, margin, y, width - 2 * margin, card_h)
+
+    def _draw_card(self, cr, card, number: int, x: float, y: float, width: float, height: float) -> None:
+        game = self.service.game
+        printing.draw_card(cr, card, number, x, y, width, height, game.size, game.free_space,
+                           bool(getattr(game, "diagonal_wins", False)))
+
+    @staticmethod
+    def _draw_centered_text(cr, text: str, x: float, y: float, width: float, height: float) -> None:
+        printing.draw_centered_text(cr, text, x, y, width, height)
+
+    # ================================================================ Spielleitung
+
+    def _render_caller(self) -> None:
+        if not hasattr(self, "pool_list"):
+            return
+        caller = self.service.game.caller
+        positions = {song.key: index + 1 for index, song in enumerate(caller.drawn)}
+        pool_keys = tuple(song.key for song in caller.pool)
+        if pool_keys != getattr(self, "_pool_keys", None):
+            # Pool hat sich geändert → Liste neu aufbauen (sonst nur Markierungen aktualisieren).
+            self._pool_keys = pool_keys
+            self._pool_rows = {}
+            for child in self.pool_list.get_children():
+                self.pool_list.remove(child)
+            for song in caller.pool:
+                row = Gtk.ListBoxRow()
+                row.song = song
+                add_class(row, "pool-row")
+                box = Gtk.Box(spacing=8)
+                box.set_margin_top(5)
+                box.set_margin_bottom(5)
+                badge = label("", xalign=1)
+                box.pack_start(badge, False, False, 0)
+                box.pack_start(label(song.display_name, "name", wrap=True), True, True, 0)
+                if song.link:
+                    box.pack_end(label("♫", "muted", "small"), False, False, 0)
+                row.add(box)
+                self.pool_list.add(row)
+                self._pool_rows[song.key] = (row, badge)
+            self.pool_list.show_all()
+        for key, (row, badge) in self._pool_rows.items():
+            number = positions.get(key)
+            badge.set_text(f"{number}." if number else "○")
+            badge_context = badge.get_style_context()
+            row_context = row.get_style_context()
+            if number:
+                badge_context.remove_class("pool-open")
+                badge_context.add_class("pool-badge")
+                row_context.add_class("pool-drawn")
+            else:
+                badge_context.remove_class("pool-badge")
+                badge_context.add_class("pool-open")
+                row_context.remove_class("pool-drawn")
+
+        total = len(caller.pool)
+        count = len(caller.drawn)
+        song = caller.current
+        follow = self.follow_switch.get_active()
+        if song:
+            self.now_label.set_text("LETZTER SONG · ALLE GESPIELT" if count == total else f"SONG {count} VON {total}")
+            self.song_label.set_text(song.title)
+            self.artist_label.set_text(song.artist or " ")
+        else:
+            self.now_label.set_text("BEREIT FÜR DIE ERSTE RUNDE" if total else "NOCH KEIN SPIEL")
+            self.song_label.set_text("Musik Bingo")
+            if not total:
+                self.artist_label.set_text("Erzeuge zuerst Karten, um den Songpool zu laden.")
+            elif follow:
+                self.artist_label.set_text("Starte die Playlist im Player – der laufende Song wird automatisch gezogen.")
+            else:
+                self.artist_label.set_text("Leertaste oder „Nächsten Song ziehen“ drücken.")
+        self._update_source_chip()
+        self.progress_label.set_text(f"{count}/{total}")
+        self.progress.set_fraction(count / total if total else 0)
+        if self.service.game.cards:
+            rule = "Reihen & Spalten" + (" & Diagonalen" if self.service.game.diagonal_wins else "")
+            self.rule_pill.set_text(f"Gewinnregel: {rule}")
+        else:
+            self.rule_pill.set_text("Noch keine Runde")
+        self.pool_meta.set_text(f"{total} Songs · {count} gezogen · {total - count} offen")
+        if follow:
+            self.draw_button.set_label("Nächster Titel im Player")
+            self.draw_button.set_sensitive(self.player is not None)
+        else:
+            self.draw_button.set_label("Nächsten Song ziehen")
+            self.draw_button.set_sensitive(total > 0 and count < total)
+        self.undo_button.set_sensitive(caller.index >= 0)
+        self.shuffle_button.set_sensitive(total > 0 and not follow)
+        self.verify_button.set_sensitive(bool(self.service.game.cards))
+        for child in self.history.get_children():
+            self.history.remove(child)
+        recent = list(reversed(caller.drawn[-6:]))
+        for position, recent_song in enumerate(recent):
+            chip = label(f"{count - position}. {recent_song.display_name}", "history-chip", "small", wrap=True)
+            self.history.add(chip)
+        if not recent:
+            self.history.add(label("Hier erscheinen die zuletzt gezogenen Songs.", "muted", "small"))
+        self.history.show_all()
+        self._update_audio_controls()
+        self._update_summary()
+
+    def _update_source_chip(self) -> None:
+        song = self.service.game.caller.current
+        target = self.service.playback_target
+        text = ""
+        if song is not None:
+            if target == "lokal":
+                path = self.service.audio_file_for(song)
+                text = f"Datei: {Path(path).name}" if path else "keine Audiodatei zugeordnet"
+            elif target == "spotify":
+                text = "Spotify-Titel verknüpft" if song.link.startswith("spotify:") else "Spotify: über Suche"
+            else:
+                text = "YouTube-Video verknüpft" if song.link.startswith("https://www.youtube") else "YouTube: über Suche"
+        if self.follow_switch.get_active() and self.now_playing:
+            text = f"Im Player: {self.now_playing.label}"
+        self.source_chip.set_text(text)
+        self.source_chip.set_visible(bool(text))
+
+    def _pool_filter(self, row, *_args) -> bool:
+        query = self.pool_search.get_text().strip().casefold() if hasattr(self, "pool_search") else ""
+        return not query or query in getattr(row, "song", Song("")).display_name.casefold()
+
+    def _pool_row_activated(self, _listbox, row) -> None:
+        song = getattr(row, "song", None)
+        if song is None or self.service.game.caller.is_drawn(song):
+            return
+        if dialogs.confirm(self, "Song als gezogen markieren?",
+                           f"„{song.display_name}“ wird als nächster gezogener Song eingetragen "
+                           "(z. B. wenn er gerade von Hand gespielt wurde).", "Markieren"):
+            self._take_song(song, f"Von Hand markiert: {song.display_name}")
+
+    def _take_song(self, song: Song, status: str) -> None:
+        if self.service.draw_song(song):
+            self._render_caller()
+            self._save()
+            self._set_status(status)
+
+    def _draw_next(self, _button=None) -> None:
+        if self.follow_switch.get_active():
+            if self.player:
+                self.player.next(on_error=lambda m: self._set_status(f"Player reagiert nicht: {m}"))
+            return
+        if self.audio_player:
+            self.audio_player.stop()
+        if self.service.game.caller.draw_next():
+            self._render_caller()
+            self._save()
+            if self.service.auto_play:
+                self._play_audio(None, automatic=True)
+
+    def _undo(self, _button=None) -> None:
+        if self.audio_player:
+            self.audio_player.stop()
+        if self.service.game.caller.undo():
+            # Im Folgen-Modus den aktuellen Player-Titel NICHT neu bewerten – sonst
+            # würde der zurückgenommene Song sofort wieder gezogen.
+            if not self.follow_switch.get_active():
+                self.last_track_identity = ""
+            self._render_caller()
+            self._save()
+
+    def _reshuffle(self, _button) -> None:
+        if self.service.game.caller.index >= 0 and not dialogs.confirm(
+            self, "Ziehung neu mischen?", "Der bisherige Ziehfortschritt wird zurückgesetzt.", "Neu mischen"
+        ):
+            return
+        self._stop_all_playback()
+        self.service.game.caller.reshuffle()
+        self.last_track_identity = ""
+        self._render_caller()
+        self._save()
+        self._set_status("Songreihenfolge neu gemischt")
+
+    def _verify_bingo(self, _button) -> None:
+        game = self.service.game
+        if not game.cards:
+            return
+        rule = "Reihen und Spalten" + (" sowie Diagonalen" if game.diagonal_wins else "")
+        answer = dialogs.bingo_check_dialog(self, len(game.cards), rule)
+        if answer is None:
+            return
+        number, name = answer
+        try:
+            wins = self.service.check_bingo(number)
+        except ValueError as error:
+            dialogs.message(self, Gtk.MessageType.WARNING, "Ungültige Kartennummer", str(error))
+            return
+        card = game.cards[number - 1]
+        cells = winning_cells(card, game.size, game.free_space, game.caller.drawn, game.diagonal_wins)
+        dialogs.bingo_result_dialog(self, card, number, name, game.size, game.free_space,
+                                    {song.key for song in game.caller.drawn}, wins, cells)
+
+    # ================================================================ Wiedergabe
+
+    def _target_changed(self, button: Gtk.RadioButton, key: str) -> None:
+        if not button.get_active():
+            return
+        if self._loading_state:
+            return
+        if self.audio_player:
+            self.audio_player.stop()
+        self.service.set_playback_target(key)
+        if self.player and not self.follow_switch.get_active() and not self._player_fits_target(self.player.info):
+            self._disconnect_player()
+        if key == "lokal" and self.follow_switch.get_active():
+            self.follow_switch.set_active(False)
+        elif self.player and self.follow_switch.get_active():
+            # Anderes Ziel → passenden Player neu wählen.
+            self._disconnect_player()
+            if not self._connect_player(quiet=False):
+                self.follow_switch.set_active(False)
+        self._save()
+        self._render_caller()
+
+    def _update_audio_controls(self, status_text: str | None = None) -> None:
+        if not hasattr(self, "audio_status"):
+            return
+        caller = self.service.game.caller
+        song = caller.current
+        target = self.service.playback_target
+        follow = self.follow_switch.get_active()
+        if target == "lokal":
+            path_text = self.service.audio_file_for(song)
+            path = Path(path_text).expanduser() if path_text else None
+            file_exists = bool(path and path.is_file())
+            available = self.audio_player is not None
+            if not available:
+                detail = self.audio_error or "Lokaler Audioplayer nicht verfügbar."
+            elif song is None:
+                detail = "Ziehe einen Song, um die passende Audiodatei abzuspielen."
+            elif not path:
+                detail = "Für diesen Song ist noch keine Audiodatei zugeordnet."
+            elif not file_exists:
+                detail = f"Audiodatei nicht gefunden: {path.name}"
+            else:
+                detail = f"Audiodatei bereit: {path.name}"
+            playing = available and self.audio_player.is_playing
+            self.audio_play_button.set_sensitive(available and song is not None and file_exists)
+            self.audio_pause_button.set_sensitive(playing)
+            self.audio_pause_button.set_label("Fortsetzen" if playing and self.audio_player.is_paused else "Pause")
+            self.audio_stop_button.set_sensitive(playing)
+            self.audio_assign_button.set_visible(True)
+            self.audio_assign_button.set_sensitive(song is not None)
+            self.audio_assign_button.set_label("Datei ersetzen …" if path_text else "Datei zuordnen …")
+            self.auto_play_check.set_sensitive(available and bool(caller.pool))
+        else:
+            name = TARGET_LABELS[target]
+            if self.player:
+                detail = f"Verbunden mit {self.player.info.identity}"
+                if self.now_playing:
+                    detail += f" · läuft: {self.now_playing.label}"
+            elif target == "spotify":
+                detail = ("Spotify-Desktop-App nicht gestartet – Titel werden über "
+                          + ("die Spotify-App geöffnet." if self.spotify_scheme else "den Spotify-Webplayer im Browser geöffnet."))
+            else:
+                detail = "YouTube öffnet sich im Standardbrowser."
+            if follow:
+                detail = (f"Folgen aktiv: Die Playlist läuft in {self.player.info.identity if self.player else name}; "
+                          "die App zieht den laufenden Song automatisch.")
+            self.audio_play_button.set_sensitive(song is not None and not follow)
+            self.audio_pause_button.set_label("Pause/Weiter")
+            self.audio_pause_button.set_sensitive(self.player is not None)
+            self.audio_stop_button.set_sensitive(self.player is not None)
+            self.audio_assign_button.set_visible(False)
+            self.auto_play_check.set_sensitive(not follow and bool(caller.pool))
+        self.audio_status.set_text(status_text or detail)
+        self._update_summary()
+
+    def _autoplay_changed(self, _button) -> None:
+        if self._loading_state:
+            return
+        self.service.auto_play = self.auto_play_check.get_active()
+        self._save()
+
+    def _play_audio(self, _button, automatic: bool = False) -> None:
+        song = self.service.game.caller.current
+        if song is None:
+            return
+        target = self.service.playback_target
+        if target == "lokal":
+            path_text = self.service.audio_file_for(song)
+            if not path_text or not self.audio_player:
+                return
+            try:
+                self.audio_player.play(Path(path_text))
+                self._set_status(f"Spiele: {song.display_name}")
+            except (OSError, RuntimeError, ValueError) as error:
+                self._audio_failed(str(error))
+                return
+            self._update_audio_controls(f"Wiedergabe: {Path(path_text).name}")
+            return
+        if target == "spotify" and self.player is None:
+            self._connect_player(quiet=True)
+        spotify_mpris = bool(self.player and self.player.info.is_spotify)
+        plan = plan_launch(song, target, spotify_mpris, self.spotify_scheme)
+
+        def fallback(message: str) -> None:
+            try:
+                open_uri(song.link if self.spotify_scheme else plan.uri)
+            except RuntimeError as error:
+                self._set_status(str(error))
+                return
+            self._set_status(f"Spotify-Steuerung meldete „{message}“ – Titel stattdessen geöffnet.")
+
+        try:
+            if plan.method == "mpris" and self.player:
+                self.player.open_uri(plan.uri, on_error=fallback)
+            else:
+                open_uri(plan.uri)
+        except RuntimeError as error:
+            dialogs.message(self, Gtk.MessageType.ERROR, "Konnte nicht geöffnet werden", str(error))
+            return
+        self._set_status(f"{plan.description}: {song.display_name}")
+
+    def _pause_audio(self, _button) -> None:
+        if self.service.playback_target != "lokal":
+            if self.player:
+                self.player.play_pause()
+            return
+        if not self.audio_player or not self.audio_player.is_playing:
+            return
+        try:
+            if self.audio_player.is_paused:
+                self.audio_player.resume()
+            else:
+                self.audio_player.pause()
+        except RuntimeError as error:
+            self._audio_failed(str(error))
+            return
+        self._update_audio_controls("Wiedergabe pausiert." if self.audio_player.is_paused else "Wiedergabe läuft.")
+
+    def _stop_audio(self, _button=None) -> None:
+        if self.service.playback_target != "lokal":
+            if self.player:
+                self.player.pause()
+            return
+        if self.audio_player:
+            self.audio_player.stop()
+        self._update_audio_controls("Wiedergabe gestoppt.")
+
+    def _stop_all_playback(self) -> None:
+        if self.audio_player:
+            self.audio_player.stop()
+
+    def _assign_audio_file(self, _button) -> None:
+        song = self.service.game.caller.current
+        if song is None:
+            return
+        dialog = Gtk.FileChooserDialog(title=f"Audiodatei für {song.title} auswählen", transient_for=self,
+                                       action=Gtk.FileChooserAction.OPEN)
+        dialog.add_buttons("Abbrechen", Gtk.ResponseType.CANCEL, "Auswählen", Gtk.ResponseType.ACCEPT)
+        audio_filter = Gtk.FileFilter()
+        audio_filter.set_name("Audiodateien")
+        for suffix in ("*.aac", "*.flac", "*.m4a", "*.mp3", "*.oga", "*.ogg", "*.opus", "*.wav"):
+            audio_filter.add_pattern(suffix)
+            audio_filter.add_pattern(suffix.upper())
+        dialog.add_filter(audio_filter)
+        response = dialog.run()
+        filename = dialog.get_filename() if response == Gtk.ResponseType.ACCEPT else None
+        dialog.destroy()
+        if not filename:
+            return
+        try:
+            self.service.assign_audio_file(song, str(Path(filename).resolve()))
+            self._save()
+            self._render_caller()
+            self._set_status(f"Audiodatei für {song.display_name} zugeordnet")
+        except (OSError, ValueError) as error:
+            dialogs.message(self, Gtk.MessageType.ERROR, "Audiodatei konnte nicht zugeordnet werden", str(error))
+
+    def _audio_finished(self) -> None:
+        self._update_audio_controls("Wiedergabe beendet.")
+
+    def _audio_failed(self, detail: str) -> None:
+        if hasattr(self, "audio_status"):
+            self._update_audio_controls(f"Wiedergabe fehlgeschlagen: {detail}")
+            self._set_status("Audiodatei konnte nicht abgespielt werden")
+
+    # ================================================================ Externer Player / Folgen
+
+    def _player_fits_target(self, info: mpris.PlayerInfo) -> bool:
+        target = self.service.playback_target
+        return (target != "spotify" or info.is_spotify) and (target != "youtube" or info.is_browser)
+
+    def _connect_player(self, quiet: bool) -> bool:
+        if self.player is not None:
+            if self._player_fits_target(self.player.info):
+                return True
+            self._disconnect_player()
+        players = mpris.list_players()
+        target = self.service.playback_target
+        info = mpris.choose_player(players, self.service.player_name, target)
+        if info is None:
+            if not quiet:
+                what = "Spotify (Desktop-App)" if target == "spotify" else "YouTube im Browser"
+                dialogs.message(self, Gtk.MessageType.INFO, "Kein passender Player gefunden",
+                                f"Starte {what} und die Playlist, dann erneut einschalten."
+                                + (f"\n\nGefunden wurden: {', '.join(p.identity for p in players)}" if players else ""))
+            return False
+        try:
+            self.player = mpris.MprisPlayer(info, on_change=self._player_changed)
+        except RuntimeError as error:
+            if not quiet:
+                dialogs.message(self, Gtk.MessageType.ERROR, "Player nicht erreichbar", str(error))
+            return False
+        self.service.player_name = info.bus_name
+        self.player_watch = Gio.bus_watch_name(Gio.BusType.SESSION, info.bus_name, Gio.BusNameWatcherFlags.NONE,
+                                               lambda *_args: None, self._player_vanished)
+        self.player_poll = GLib.timeout_add_seconds(2, self._poll_player)
+        self.last_track_identity = ""
+        self._player_changed()
+        return True
+
+    def _disconnect_player(self) -> None:
+        if self.player_poll:
+            GLib.source_remove(self.player_poll)
+            self.player_poll = 0
+        if self.player_watch:
+            Gio.bus_unwatch_name(self.player_watch)
+            self.player_watch = 0
+        if self.player:
+            self.player.close()
+            self.player = None
+        self.now_playing = None
+
+    def _player_vanished(self, *_args) -> None:
+        name = self.player.info.identity if self.player else "Player"
+        self._disconnect_player()
+        if self.follow_switch.get_active():
+            self.follow_switch.set_active(False)
+        self._set_status(f"{name} wurde beendet – Player folgen ausgeschaltet.")
+        self._render_caller()
+
+    def _poll_player(self) -> bool:
+        # Manche Player (v. a. Browser) melden Titelwechsel nicht zuverlässig.
+        if self.player is None:
+            self.player_poll = 0
+            return False
+        player = self.player
+
+        def received(metadata: dict) -> None:
+            if self.player is player and mpris.track_identity(metadata) != self.last_track_identity:
+                self._handle_metadata(metadata)
+        player.fetch_metadata(received)
+        return True
+
+    def _player_changed(self) -> None:
+        if self.player is not None:
+            self._handle_metadata(self.player.metadata())
+
+    def _handle_metadata(self, metadata: dict) -> None:
+        identity = mpris.track_identity(metadata)
+        if identity == self.last_track_identity:
+            return
+        self.last_track_identity = identity
+        track = mpris.track_from_metadata(metadata)
+        self.now_playing = track
+        if track is None:
+            self._update_audio_controls()
+            self._update_source_chip()
+            return
+        if self.follow_switch.get_active():
+            self._follow_track(track)
+        else:
+            self._update_audio_controls()
+
+    def _follow_track(self, track: PlayingTrack) -> None:
+        caller = self.service.game.caller
+        song = SongMatcher(caller.pool).find(track)
+        if song is None:
+            self.unmatched_track = track
+            self.warning_label.set_markup(
+                f"<b>Läuft im Player, steht aber nicht auf den Karten:</b>\n{escape(track.label)}\n"
+                "<small>Überspringen oder rechts per Doppelklick den passenden Song markieren.</small>")
+            self.warning_revealer.set_reveal_child(True)
+            self._set_status(f"Nicht auf den Karten: {track.label}")
+            self._update_source_chip()
+            return
+        self._hide_warning()
+        if caller.is_drawn(song):
+            self._set_status(f"Läuft erneut (bereits gezogen): {song.display_name}")
+            self._render_caller()
+            return
+        self._take_song(song, f"Aus {self.player.info.identity if self.player else 'Player'} übernommen: {song.display_name}")
+
+    def _skip_unmatched(self, _button) -> None:
+        self._hide_warning()
+        if self.player:
+            self.player.next()
+
+    def _hide_warning(self) -> None:
+        self.unmatched_track = None
+        if hasattr(self, "warning_revealer"):
+            self.warning_revealer.set_reveal_child(False)
+
+    def _follow_toggled(self, switch: Gtk.Switch, _param) -> None:
+        if self._loading_state:
+            return
+        if switch.get_active():
+            if not self.service.game.cards:
+                dialogs.message(self, Gtk.MessageType.INFO, "Erst Karten erzeugen",
+                                "Player folgen braucht eine laufende Runde mit Karten.")
+                switch.set_active(False)
+                return
+            if self.service.playback_target == "lokal":
+                self.target_buttons["spotify"].set_active(True)
+            if not self._connect_player(quiet=False):
+                switch.set_active(False)
+                return
+            self.service.follow_player = True
+            if self.audio_player:
+                self.audio_player.stop()
+            self.last_track_identity = ""
+            self._player_changed()
+            self._set_status(f"Folge {self.player.info.identity}: laufende Songs werden automatisch gezogen.")
+        else:
+            self.service.follow_player = False
+            self._hide_warning()
+            self._disconnect_player()
+        self._save()
+        self._render_caller()
+
+    # ================================================================ Einstellungen & Speichern
+
+    def _update_field_count(self, *_args) -> None:
+        if not hasattr(self, "field_count"):
+            return
+        size = max(3, self.size_combo.get_active() + 3)
+        if size % 2 == 0 and self.free_check.get_active():
+            self.free_check.set_active(False)
+        self.free_check.set_sensitive(size % 2 == 1)
+        free = self.free_check.get_active() and size % 2 == 1
+        self.field_count.set_text(f"{size * size - int(free)} Songs je Karte")
+        self._update_song_stats()
+        self._save_settings()
+
+    def _count_changed(self, *_args) -> None:
+        self._update_song_stats()
+        self._save_settings()
+
+    def _update_song_stats(self) -> None:
+        if not hasattr(self, "pool_count_label"):
+            return
+        songs = parse_songs(self._song_text())
+        size = max(3, self.size_combo.get_active() + 3)
+        free_space = self.free_check.get_active()
+        needed = required_songs(size, free_space)
+        requested = self.count_spin.get_value_as_int()
+        linked = sum(1 for song in songs if song.link)
+        link_text = f" · {linked} mit Link" if linked else ""
+        if len(songs) < needed:
+            message = f"{len(songs)} Songs · {needed} nötig · {needed - len(songs)} fehlen"
+            style = "pool-warning"
+        else:
+            possible = unique_card_capacity(songs, size, free_space)
+            if possible < requested:
+                message = f"{len(songs)} Songs · nur {possible} verschiedene Karten möglich · {requested} gewünscht"
+                style = "pool-warning"
+            else:
+                combinations = "sehr viele" if possible >= 10**6 else f"{possible}"
+                message = f"✓ {len(songs)} Songs{link_text} · {needed} je Karte · {combinations} Kombinationen"
+                style = "pool-ready"
+        context = self.pool_count_label.get_style_context()
+        context.remove_class("pool-ready")
+        context.remove_class("pool-warning")
+        context.add_class(style)
+        self.pool_count_label.set_text(message)
+        self._update_summary()
+
+    def _update_summary(self) -> None:
+        if not hasattr(self, "summary_values"):
+            return
+        caller = self.service.game.caller
+        values = self.summary_values
+        values["list"].set_text(f"{len(parse_songs(self._song_text()))} Songs" if hasattr(self, "song_buffer") else "–")
+        values["cards"].set_text(f"{len(self.service.game.cards)}" if self.service.game.cards else "–")
+        values["drawn"].set_text(f"{len(caller.drawn)} / {len(caller.pool)}" if caller.pool else "–")
+        player = TARGET_LABELS[self.service.playback_target]
+        if self.player:
+            player = self.player.info.identity + (" · folgt" if self.follow_switch.get_active() else "")
+        values["player"].set_text(player)
+
+    def _set_page_count(self, combo: Gtk.ComboBoxText) -> None:
+        self.print_per_page = 1 if combo.get_active() == 1 else 2
+        if not self._loading_state:
+            self.service.per_page = self.print_per_page
+            self._save()
+
+    def _song_changed(self, _buffer) -> None:
+        self._update_song_stats()
+        if self._loading_state:
+            return
+        if self.song_save_source:
+            GLib.source_remove(self.song_save_source)
+        self.song_save_source = GLib.timeout_add(650, self._save_song_edits)
+
+    def _save_song_edits(self) -> bool:
+        self.song_save_source = 0
+        self._save_settings()
+        return False
+
+    def _save_settings(self, *_args) -> None:
+        if self._loading_state or not hasattr(self, "auto_play_check"):
+            return
+        self.service.song_text = self._song_text()
+        self.service.card_size = max(3, self.size_combo.get_active() + 3)
+        self.service.free_space = self.free_check.get_active()
+        self.service.card_count = self.count_spin.get_value_as_int()
+        self.service.per_page = self.print_per_page
+        self.service.diagonal_wins = self.diagonal_check.get_active()
+        self.service.auto_play = self.auto_play_check.get_active()
+        self._save()
+
+    def _save(self) -> None:
+        try:
+            self.store.save(self.service)
+        except (OSError, ValueError) as error:
+            self._set_status(f"Lokal speichern fehlgeschlagen: {error}")
+
+    def _before_close(self, _window, _event) -> bool:
+        self.closing = True
+        if self.song_save_source:
+            GLib.source_remove(self.song_save_source)
+            self.song_save_source = 0
+        if self.reader:
+            self.reader.cancel()
+        self._save_settings()
+        self._disconnect_player()
+        if self.audio_player:
+            self.audio_player.close()
+        return False
+
+    def _set_status(self, text: str) -> None:
+        self.status.set_text(text)
+
+    def _export(self, _button) -> None:
+        self._save_settings()
+        dialog = Gtk.FileChooserDialog(title="Spielstand exportieren", transient_for=self,
+                                       action=Gtk.FileChooserAction.SAVE)
+        dialog.add_buttons("Abbrechen", Gtk.ResponseType.CANCEL, "Exportieren", Gtk.ResponseType.ACCEPT)
+        dialog.set_do_overwrite_confirmation(True)
+        dialog.set_current_name("musik-bingo-spielstand.json")
+        if dialog.run() == Gtk.ResponseType.ACCEPT:
+            try:
+                self.store.export_to(Path(dialog.get_filename()), self.service)
+                self._set_status("Spielstand exportiert")
+            except OSError as error:
+                dialogs.message(self, Gtk.MessageType.ERROR, "Export fehlgeschlagen", str(error))
+        dialog.destroy()
+
+    def _import(self, _button) -> None:
+        dialog = Gtk.FileChooserDialog(title="Spielstand importieren", transient_for=self,
+                                       action=Gtk.FileChooserAction.OPEN)
+        dialog.add_buttons("Abbrechen", Gtk.ResponseType.CANCEL, "Importieren", Gtk.ResponseType.ACCEPT)
+        file_filter = Gtk.FileFilter()
+        file_filter.set_name("Musik Bingo Spielstand (*.json)")
+        file_filter.add_pattern("*.json")
+        dialog.add_filter(file_filter)
+        response = dialog.run()
+        filename = Path(dialog.get_filename()) if response == Gtk.ResponseType.ACCEPT and dialog.get_filename() else None
+        dialog.destroy()
+        if filename is None or not dialogs.confirm(
+            self, "Spielstand ersetzen?",
+            "Der ausgewählte Spielstand ersetzt Karten, Songliste, Einstellungen und Ziehfortschritt auf diesem Rechner.",
+            "Ersetzen",
+        ):
+            return
+        try:
+            imported = self.store.import_from(filename)
+        except Exception as error:  # noqa: BLE001 – z. B. RecursionError bei manipulierter JSON
+            dialogs.message(self, Gtk.MessageType.ERROR, "Import fehlgeschlagen", str(error))
+            return
+        self._stop_all_playback()
+        self._disconnect_player()
+        self._hide_warning()
+        imported.follow_player = False
+        self._apply_service_to_widgets(imported)
+        self._save()
+        self._set_status("Spielstand importiert")
+
+    # ================================================================ Sonstiges
+
+    def _nav_selected(self, _listbox, row) -> None:
+        if row is not None:
+            self.stack.set_visible_child_name(row.page_name)
+
+    def _select_page(self, name: str) -> None:
+        self.nav.select_row(self.nav.get_row_at_index(PAGES.index(name)))
+
+    def _toggle_theme(self, _button) -> None:
+        self.theme = "light" if self.theme == "dark" else "dark"
+        try:
+            self.theme_path.parent.mkdir(parents=True, exist_ok=True)
+            self.theme_path.write_text(self.theme, encoding="utf-8")
+        except OSError as error:
+            self._set_status(f"Design konnte nicht gespeichert werden: {error}")
+        self._apply_theme()
+
+    def _apply_theme(self) -> None:
+        self.css_provider.load_from_data(css_for(self.theme).encode("utf-8"))
+        settings = Gtk.Settings.get_default()
+        if settings is not None:
+            settings.set_property("gtk-application-prefer-dark-theme", self.theme == "dark")
+        self.theme_item.set_property("text", "Helles Design" if self.theme == "dark" else "Dunkles Design")
+
+    def _toggle_fullscreen(self) -> None:
+        if self.is_fullscreen:
+            self.unfullscreen()
+        else:
+            self.fullscreen()
+        self.is_fullscreen = not self.is_fullscreen
+
+    def _show_help(self, _button) -> None:
+        dialogs.list_dialog(self, "Hilfe & Datenschutz", "Musik Bingo läuft komplett lokal auf diesem Rechner.", [
+            ("Datenschutz", [
+                "Die App stellt selbst keine Internetverbindung her und überträgt keine Daten.",
+                "Spielstand: ~/.local/share/musik-bingo/spielstand.json (nur lokal).",
+                "Spotify/YouTube werden nur über die lokale Player-Schnittstelle (MPRIS) gesteuert oder per "
+                "Klick im Browser geöffnet – wie ein selbst angeklickter Link.",
+                "Chart- und Weihnachtslisten sind fest in der App gespeichert (Stand KW 47/2026).",
+            ]),
+            ("Bingo = Playlist", [
+                "Weg A: Playlist in Spotify bauen → als CSV exportieren (z. B. Exportify) → „Playlist importieren“.",
+                "Weg B: Playlist in Spotify/YouTube starten → „Vom Player einlesen“.",
+                "Weg C: Zufallsmix/Liste hier bauen → „Als Playlist exportieren“ (Text) → per TuneMyMusic o. Ä. "
+                "in Spotify/YouTube anlegen.",
+                "Vor dem Spiel: „Mit Playlist abgleichen“ zeigt fehlende oder überzählige Titel.",
+                "Im Spiel: „Player folgen“ – die Playlist läuft im Player, die App zieht automatisch mit und "
+                "warnt bei Titeln, die nicht auf den Karten stehen.",
+            ]),
+            ("Tastatur", ["Leertaste: nächster Song", "Rücktaste: Ziehung zurücknehmen", "F11: Vollbild"]),
+        ])
+
+    def _on_key(self, _window, event) -> bool:
+        if event.keyval == Gdk.KEY_F11:
+            self._toggle_fullscreen()
+            return True
+        focus = self.get_focus()
+        if isinstance(focus, (Gtk.TextView, Gtk.Entry, Gtk.SpinButton, Gtk.ComboBox, Gtk.Button)):
+            return False
+        if self.stack.get_visible_child_name() != "game":
+            return False
+        if event.keyval == Gdk.KEY_space and self.draw_button.get_sensitive():
+            self._draw_next()
+            return True
+        if event.keyval == Gdk.KEY_BackSpace:
+            self._undo()
+            return True
+        return False
+
+
+class MusikBingoApplication(Gtk.Application):
+    def __init__(self):
+        super().__init__(application_id="de.weihnachtsfeier.musikbingo", flags=Gio.ApplicationFlags.FLAGS_NONE)
+
+    def do_activate(self) -> None:
+        GLib.set_application_name("Musik Bingo")
+        window = self.props.active_window
+        if window is None:
+            window = MusikBingoWindow(self)
+        window.show_all()
+        window.warning_revealer.set_reveal_child(False)
+        window._update_source_chip()
+        window._update_audio_controls()
+        window.present()
+
+
+def main() -> int:
+    # Fensterklasse = Desktop-Eintrag (StartupWMClass), damit Taskleiste und Icon zusammenpassen.
+    GLib.set_prgname("de.weihnachtsfeier.musikbingo")
+    return MusikBingoApplication().run(sys.argv)

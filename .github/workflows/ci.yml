@@ -1,0 +1,106 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONPATH: ${{ github.workspace }}
+  PYTHONDONTWRITEBYTECODE: "1"
+  APT_BASE: >-
+    python3-gi python3-gi-cairo python3-cairo gir1.2-gtk-3.0
+    python3-gst-1.0 gir1.2-gstreamer-1.0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good
+    dbus desktop-file-utils
+
+jobs:
+  lint:
+    name: Lint (ruff, shellcheck, Syntax)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Werkzeuge
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends shellcheck desktop-file-utils
+          pipx install ruff
+      - name: ruff (Fehler, Bugs, Sicherheit)
+        run: ruff check musik_bingo tests
+      - name: shellcheck
+        run: shellcheck scripts/*.sh
+      - name: Python-Syntax
+        run: python3 -m compileall -q musik_bingo tests
+
+  unit:
+    name: Unit-Tests (${{ matrix.os }})
+    needs: lint
+    strategy:
+      fail-fast: false
+      matrix:
+        # 22.04 = Basis von Linux Mint 21 (Python 3.10), 24.04 = Linux Mint 22 (Python 3.12)
+        os: [ubuntu-22.04, ubuntu-24.04]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Systempakete
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $APT_BASE
+      - name: Unit-Tests
+        run: /usr/bin/python3 -m unittest discover -v -s tests/unit -t .
+
+  integration:
+    name: Integrationstests (D-Bus/Spotify-Simulation, GStreamer, Druck, Installer)
+    needs: lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Systempakete
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $APT_BASE
+      - name: Integrationstests
+        run: /usr/bin/python3 -m unittest discover -v -s tests/integration -t .
+      - name: Menüeintrag installieren und validieren
+        run: |
+          XDG_DATA_HOME=/tmp/mb bash scripts/install-desktop.sh
+          desktop-file-validate /tmp/mb/applications/musik-bingo.desktop
+          test -f /tmp/mb/icons/hicolor/scalable/apps/musik-bingo.svg
+
+  security:
+    name: Sicherheitstests
+    needs: lint
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Systempakete
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends $APT_BASE
+      - name: Sicherheitstests (kein Netzwerk, Links, Dateien, Injection)
+        run: /usr/bin/python3 -m unittest discover -v -s tests/security -t .
+
+  e2e:
+    name: GUI- und E2E-Tests (Xvfb)
+    needs: [unit, integration, security]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Systempakete
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends $APT_BASE \
+            xvfb xauth dbus-x11 librsvg2-common adwaita-icon-theme fonts-dejavu-core
+      - name: GUI-/E2E-Tests
+        env:
+          SCREENSHOT_DIR: ${{ runner.temp }}/screenshots
+        run: /usr/bin/python3 -m unittest discover -v -s tests/gui -t .
+      - name: Screenshots hochladen
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: screenshots
+          path: ${{ runner.temp }}/screenshots
+          if-no-files-found: ignore

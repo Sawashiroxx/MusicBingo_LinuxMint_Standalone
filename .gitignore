@@ -1,0 +1,21 @@
+__pycache__/
+*.py[cod]
+.venv/
+build/
+dist/
+*.egg-info/
+
+# Rechnergebundener Starter (wird per install-desktop.sh erzeugt)
+Musik-Bingo.desktop
+
+# Private Notizen und Musikdateien gehören nicht ins Repository
+*.odt
+*.aac
+*.flac
+*.m4a
+*.mp3
+*.oga
+*.ogg
+*.opus
+*.wav
+.ruff_cache/

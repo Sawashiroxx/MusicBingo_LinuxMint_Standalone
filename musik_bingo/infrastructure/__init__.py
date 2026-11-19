@@ -1,0 +1,1 @@
+"""Dateispeicher und Betriebssystemanbindung."""
