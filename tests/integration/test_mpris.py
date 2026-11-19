@@ -1,0 +1,185 @@
+"""MPRIS-Anbindung gegen einen simulierten Player auf einem privaten D-Bus.
+
+Es wird keine echte Spotify-/Browser-Instanz benötigt und nichts ins Netz gesendet.
+"""
+import shutil
+import unittest
+
+from musik_bingo.domain.models import Song
+from musik_bingo.infrastructure.launcher import plan_launch
+
+try:
+    from gi.repository import Gio
+    from musik_bingo.infrastructure import mpris
+    from tests.support.fake_mpris import TRACKS, FakePlayer, run_until
+except (ImportError, ValueError):  # pragma: no cover
+    Gio = None
+
+
+@unittest.skipUnless(Gio is not None and shutil.which("dbus-daemon"), "D-Bus/PyGObject nicht verfügbar")
+class MprisTests(unittest.TestCase):
+    def setUp(self):
+        self.bus = Gio.TestDBus.new(Gio.TestDBusFlags.NONE)
+        self.bus.up()
+        self.address = self.bus.get_bus_address()
+        self.client = Gio.DBusConnection.new_for_address_sync(
+            self.address,
+            Gio.DBusConnectionFlags.AUTHENTICATION_CLIENT | Gio.DBusConnectionFlags.MESSAGE_BUS_CONNECTION,
+            None, None,
+        )
+        self.fakes = []
+
+    def tearDown(self):
+        for fake in self.fakes:
+            fake.close()
+        self.client.close_sync(None)
+        self.bus.down()
+
+    def fake(self, name="org.mpris.MediaPlayer2.spotify", tracks=TRACKS, loop=False, identity="Spotify", ad_ms=None):
+        player = FakePlayer(self.address, name, list(tracks), loop, identity, ad_ms)
+        self.fakes.append(player)
+        return player
+
+    def test_lists_and_chooses_players(self):
+        self.fake()
+        self.fake("org.mpris.MediaPlayer2.firefox.instance_1_23", identity="Mozilla Firefox")
+        players = mpris.list_players(self.client)
+        self.assertEqual([p.identity for p in players], ["Mozilla Firefox", "Spotify"])
+        self.assertTrue(mpris.choose_player(players, target="spotify").is_spotify)
+        self.assertTrue(mpris.choose_player(players, target="youtube").is_browser)
+        self.assertEqual(mpris.choose_player(players, preferred=players[0].bus_name).bus_name, players[0].bus_name)
+        self.assertIsNone(mpris.choose_player([], target="spotify"))
+        self.assertIsNone(mpris.choose_player([p for p in players if not p.is_spotify], target="spotify"))
+
+    def test_reads_current_track_and_follows_changes(self):
+        fake = self.fake()
+        info = mpris.list_players(self.client)[0]
+        changes = []
+        player = mpris.MprisPlayer(info, self.client, on_change=lambda: changes.append(player.current_track()))
+        track = player.current_track()
+        self.assertEqual(track.title, "Last Christmas - Remastered")
+        self.assertEqual(track.url, "spotify:track:4uLU6hMCjMI75M1A2tKUQC")
+        fake.set_track(2)
+        self.assertTrue(run_until(lambda: changes and changes[-1] and changes[-1].artist == "Mariah Carey"))
+        fake.set_track(1)  # Werbung wird ignoriert
+        self.assertTrue(run_until(lambda: len(changes) >= 2))
+        self.assertIsNone(changes[-1])
+        player.close()
+
+    def test_open_uri_and_controls(self):
+        fake = self.fake()
+        player = mpris.MprisPlayer(mpris.list_players(self.client)[0], self.client)
+        player.open_uri("spotify:track:4uLU6hMCjMI75M1A2tKUQC")
+        player.play_pause()
+        player.stop()
+        self.assertTrue(run_until(lambda: len(fake.calls) == 3))
+        self.assertEqual(fake.calls[0], ("OpenUri", ("spotify:track:4uLU6hMCjMI75M1A2tKUQC",)))
+        self.assertEqual([c[0] for c in fake.calls[1:]], ["PlayPause", "Stop"])
+
+    def test_player_disappears(self):
+        fake = self.fake()
+        player = mpris.MprisPlayer(mpris.list_players(self.client)[0], self.client)
+        errors = []
+        fake.close()
+        self.fakes.remove(fake)
+        player.next(on_error=errors.append)
+        self.assertTrue(run_until(lambda: errors))
+        self.assertEqual(mpris.list_players(self.client), [])
+
+    def read_playlist(self, loop: bool, tracks=TRACKS, limit=500, setup=None, cancel_after=None):
+        fake = self.fake(tracks=tracks, loop=loop, ad_ms=400)
+        if setup:
+            setup(fake)
+        player = mpris.MprisPlayer(mpris.list_players(self.client)[0], self.client)
+        result = {}
+        progress = []
+        reader = mpris.PlaylistReader(
+            player, progress.append,
+            lambda t, r, complete: result.update(tracks=t, reason=r, complete=complete),
+            limit=limit, wait_ms=500, poll_ms=30)
+        reader.AD_WAIT_MS = 3000
+        reader.start()
+        if cancel_after is not None:
+            run_until(lambda: len(progress) >= cancel_after, timeout=5)
+            reader.cancel()
+        self.assertTrue(run_until(lambda: result, timeout=15))
+        return result, progress
+
+    def test_reads_whole_playlist_with_repeat(self):
+        result, progress = self.read_playlist(loop=True)
+        self.assertEqual([t.artist for t in result["tracks"]], ["Wham!", "Mariah Carey", "Chris Rea"])
+        self.assertEqual(result["reason"], "Playlist vollständig gelesen.")
+        self.assertTrue(result["complete"])
+        self.assertEqual(progress, [1, 2, 3])
+        self.assertIn(("Pause", ()), self.fakes[0].calls)
+
+    def test_reads_playlist_until_end_without_repeat(self):
+        result, _ = self.read_playlist(loop=False)
+        self.assertEqual(len(result["tracks"]), 3)
+        self.assertEqual(result["reason"], "Playlist-Ende erreicht.")
+        # Ende wird erst nach einem zweiten „Weiter“ angenommen
+        self.assertGreaterEqual(sum(1 for c in self.fakes[0].calls if c[0] == "Next"), 4)
+
+    def test_ad_with_blocked_next_is_waited_out(self):
+        def setup(fake):
+            fake.block_next_on_ads = True
+        result, _ = self.read_playlist(loop=True, setup=setup)
+        self.assertEqual([t.artist for t in result["tracks"]], ["Wham!", "Mariah Carey", "Chris Rea"])
+        self.assertTrue(result["complete"])
+
+    def test_never_presses_next_during_ad(self):
+        result, _ = self.read_playlist(loop=True)
+        fake = self.fakes[0]
+        self.assertEqual([t.artist for t in result["tracks"]], ["Wham!", "Mariah Carey", "Chris Rea"])
+        self.assertTrue(fake.next_at)
+        self.assertFalse([trackid for trackid in fake.next_at if "/ad/" in trackid])
+
+    def test_same_song_twice_in_a_row_does_not_end_reading(self):
+        tracks = [TRACKS[0], TRACKS[2], TRACKS[2], TRACKS[3]]
+        result, _ = self.read_playlist(loop=False, tracks=tracks)
+        self.assertEqual([t.artist for t in result["tracks"]], ["Wham!", "Mariah Carey", "Chris Rea"])
+
+    def test_cancel_marks_result_incomplete(self):
+        long = [dict(TRACKS[0], **{"mpris:trackid": f"/com/spotify/track/{i:022d}", "xesam:title": f"Song {i}"})
+                for i in range(40)]
+        result, _ = self.read_playlist(loop=True, tracks=long, cancel_after=2)
+        self.assertFalse(result["complete"])
+        self.assertIn("abgebrochen", result["reason"])
+
+    def test_read_limit_and_empty_player(self):
+        result, _ = self.read_playlist(loop=True, limit=2)
+        self.assertEqual(len(result["tracks"]), 2)
+        self.assertIn("Limit", result["reason"])
+        self.tearDown()
+        self.setUp()
+        result, _ = self.read_playlist(loop=False, tracks=[])
+        self.assertEqual(result["tracks"], [])
+        self.assertFalse(result["complete"])
+        self.assertIn("kein Titel", result["reason"])
+
+
+class LaunchPlanTests(unittest.TestCase):
+    def test_spotify_paths(self):
+        song = Song("Last Christmas", "Wham!", "spotify:track:4uLU6hMCjMI75M1A2tKUQC")
+        self.assertEqual(plan_launch(song, "spotify", True, True).method, "mpris")
+        self.assertEqual(plan_launch(song, "spotify", False, True).uri, song.link)
+        self.assertTrue(plan_launch(song, "spotify", False, False).uri.startswith("https://open.spotify.com/track/"))
+        plain = Song("Last Christmas", "Wham!")
+        plan = plan_launch(plain, "spotify", True, True)
+        self.assertEqual((plan.method, plan.exact), ("uri", False))
+        self.assertTrue(plan.uri.startswith("spotify:search:"))
+        self.assertTrue(plan_launch(plain, "spotify", False, False).uri.startswith("https://open.spotify.com/search/"))
+
+    def test_youtube_paths(self):
+        video = Song("A", "B", "https://youtu.be/E8gmARGvPlI")
+        self.assertEqual(plan_launch(Song("A", "B", "https://www.youtube.com/watch?v=E8gmARGvPlI"), "youtube", True, True).uri,
+                         "https://www.youtube.com/watch?v=E8gmARGvPlI")
+        self.assertEqual(video.link, "https://www.youtube.com/watch?v=E8gmARGvPlI")  # Modell normalisiert
+        self.assertEqual(Song("A", "B", "https://example.com/x").link, "")
+        self.assertIn("youtube.com/results", plan_launch(Song("A", "B"), "youtube", False, False).uri)
+        with self.assertRaises(ValueError):
+            plan_launch(Song("A"), "lokal", False, False)
+
+
+if __name__ == "__main__":
+    unittest.main()

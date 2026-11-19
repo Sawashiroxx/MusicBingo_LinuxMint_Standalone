@@ -1,0 +1,50 @@
+"""GUI- und Ende-zu-Ende-Tests: echte GTK-Fenster unter Xvfb, eigener D-Bus pro Lauf.
+
+Werden übersprungen, wenn xvfb-run oder dbus-run-session fehlen.
+Screenshots landen in $SCREENSHOT_DIR (Standard: temporärer Ordner).
+"""
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+
+SCENARIOS = Path(__file__).resolve().parent / "scenarios"
+TOOLS = shutil.which("xvfb-run") and shutil.which("dbus-run-session")
+
+
+@unittest.skipUnless(TOOLS, "xvfb-run und dbus-run-session werden für GUI-Tests benötigt")
+class GuiTests(unittest.TestCase):
+    def scenario(self, name: str, *args: str, timeout: int = 180) -> str:
+        command = ["dbus-run-session", "--", "xvfb-run", "-a", "-s", "-screen 0 1600x1000x24",
+                   sys.executable, str(SCENARIOS / name), *args]
+        result = subprocess.run(command, capture_output=True, text=True, timeout=timeout, cwd=SCENARIOS)
+        output = result.stdout + "\n" + "\n".join(
+            line for line in result.stderr.splitlines() if "Traceback" in line or "Error" in line or line.startswith("  "))
+        self.assertEqual(result.returncode, 0, f"{name} {' '.join(args)} fehlgeschlagen:\n{output[-4000:]}")
+        self.assertNotIn("FAIL ", result.stdout)
+        return result.stdout
+
+    def test_full_game_flow(self):
+        self.scenario("full_flow.py")
+
+    def test_follow_spotify_end_to_end(self):
+        self.scenario("follow_spotify.py")
+
+    def test_edge_cases(self):
+        for mode in ("broken", "deep", "empty", "big"):
+            with self.subTest(mode=mode):
+                self.scenario("edge_cases.py", mode)
+
+    def test_screenshots_render_in_both_themes(self):
+        target = Path(os.environ.get("SCREENSHOT_DIR") or tempfile.mkdtemp(prefix="screens-"))
+        for theme in ("dark", "light"):
+            with self.subTest(theme=theme):
+                self.scenario("screenshots.py", theme, str(target))
+        self.assertGreaterEqual(len(list(target.glob("*.png"))), 12)  # 6 Ansichten × 2 Designs
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "musik-bingo"
+version = "2.0.0"
+description = "Musik-Bingo für private Feiern – native GTK-3-App für Linux Mint, offline, mit Spotify-/YouTube-Anbindung über MPRIS"
+readme = "README.md"
+requires-python = ">=3.10"
+# Laufzeitabhängigkeiten kommen aus dem System (apt), nicht aus pip:
+# python3-gi, gir1.2-gtk-3.0, optional python3-gst-1.0
+dependencies = []
+
+[project.scripts]
+musik-bingo = "musik_bingo.main:main"
+
+[tool.setuptools.packages.find]
+include = ["musik_bingo*"]
+
+[tool.setuptools.package-data]
+musik_bingo = ["default_songs.txt", "catalogs/*.txt", "resources/*.svg"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+# E9/F: echte Fehler, B: typische Bugs, S: Sicherheit (bandit)
+select = ["E9", "F", "B", "S"]
+ignore = ["B008", "B023", "B905"]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests dürfen assert, Subprozesse, Temp-Pfade und reproduzierbare Zufallszahlen nutzen.
+"tests/**" = ["S101", "S108", "S311", "S404", "S603", "S607"]
