@@ -313,3 +313,23 @@ class PersistenceTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class CardsContainingTests(unittest.TestCase):
+    """„Ohne Kartennummer prüfen“: Karte über die Songs der Gewinnreihe finden."""
+
+    def test_finds_exactly_the_cards_with_all_songs(self):
+        from musik_bingo.domain.card_generator import cards_containing, generate_cards
+        songs = [Song(f"Song {i}", "A") for i in range(40)]
+        cards = generate_cards(songs, 5, True, 160)
+        line = cards[41].songs[:5]  # erste Reihe von Karte #42
+        found = cards_containing(cards, line)
+        self.assertIn(42, found)
+        for number in found:
+            self.assertTrue({song.key for song in line} <= {song.key for song in cards[number - 1].songs})
+        self.assertEqual(len(found), sum(1 for card in cards
+                                         if {s.key for s in line} <= {s.key for s in card.songs}))
+        self.assertEqual(cards_containing(cards, []), [])
+        self.assertEqual(cards_containing(cards, [Song("Gibt es nicht", "X")]), [])
+        # Groß-/Kleinschreibung wie bei der Song-Identität egal
+        self.assertIn(42, cards_containing(cards, [Song(s.title.upper(), s.artist.lower()) for s in line]))

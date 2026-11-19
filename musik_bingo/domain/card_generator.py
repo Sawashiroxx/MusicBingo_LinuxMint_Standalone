@@ -107,3 +107,16 @@ def generate_cards(
         used.add(signature)
         cards.append(BingoCard(chosen))
     return cards
+
+
+def cards_containing(cards: list[BingoCard], songs: list[Song]) -> list[int]:
+    """Kartennummern (ab 1), auf denen alle genannten Songs stehen.
+
+    Für „Ohne Kartennummer prüfen“: Der Gast liest die Songs seiner Gewinnreihe vor,
+    die App findet die passende Karte – auch wenn die Nummer unleserlich ist.
+    """
+    wanted = {song.key for song in songs}
+    if not wanted:
+        return []
+    return [number for number, card in enumerate(cards, start=1)
+            if wanted <= {song.key for song in card.songs}]

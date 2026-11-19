@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Callable
 
 import gi
 
@@ -318,8 +319,15 @@ def list_dialog(parent: Gtk.Window, title: str, intro: str, sections: list[tuple
 # ------------------------------------------------------------ Bingo-Prüfung
 
 
+RESPONSE_WITHOUT_NUMBER = 1
+WITHOUT_NUMBER = 0  # Rückgabe statt Kartennummer: „Ohne Kartennummer prüfen“ gewählt
+MAX_LISTED_CARDS = 8
+
+
 def bingo_check_dialog(parent: Gtk.Window, card_count: int, rule: str) -> tuple[int, str] | None:
+    """Rückgabe (Kartennummer, Name); Kartennummer WITHOUT_NUMBER = Prüfung über die Songs."""
     dialog, content, _ok = base_dialog(parent, "Bingo prüfen", "Prüfen", 420)
+    dialog.add_button("Ohne Kartennummer …", RESPONSE_WITHOUT_NUMBER)
     content.pack_start(label("Nummer der gedruckten Karte eingeben. Geprüft werden nur bereits gezogene Songs.",
                              wrap=True), False, False, 0)
     number = Gtk.SpinButton.new_with_range(1, max(1, card_count), 1)
@@ -336,7 +344,102 @@ def bingo_check_dialog(parent: Gtk.Window, card_count: int, rule: str) -> tuple[
     number.update()
     result = (number.get_value_as_int(), name.get_text().strip())
     dialog.destroy()
+    if response == RESPONSE_WITHOUT_NUMBER:
+        return WITHOUT_NUMBER, result[1]
     return result if response == Gtk.ResponseType.OK else None
+
+
+def find_card_dialog(parent: Gtk.Window, songs: list[Song], drawn_keys: set[str],
+                     find: Callable[[list[Song]], list[tuple[int, bool]]]) -> int | None:
+    """Prüfen ohne Kartennummer: Songs der Gewinnreihe anhaken → passende Karte finden.
+
+    ``find(ausgewählte Songs)`` liefert [(Kartennummer, Ziel erreicht)]. Rückgabe: gewählte Karte.
+    """
+    dialog, content, ok = base_dialog(parent, "Ohne Kartennummer prüfen", "Karte anzeigen", 620)
+    ok.set_sensitive(False)
+    content.pack_start(label(
+        "Lass dir die Songs der Gewinnreihe vorlesen und hake sie hier an. Die App zeigt sofort, "
+        "ob sie schon gespielt wurden, und sucht die passende Karte.", wrap=True), False, False, 0)
+    search = Gtk.SearchEntry()
+    search.set_placeholder_text("Song oder Interpret suchen …")
+    content.pack_start(search, False, False, 0)
+    scroller = Gtk.ScrolledWindow()
+    scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+    scroller.set_min_content_height(300)
+    rows = Gtk.ListBox()
+    rows.set_selection_mode(Gtk.SelectionMode.NONE)
+    scroller.add(rows)
+    content.pack_start(scroller, True, True, 0)
+    status = label("", wrap=True)
+    content.pack_start(status, False, False, 0)
+    cards = Gtk.ComboBoxText()
+    cards.set_no_show_all(True)
+    content.pack_start(cards, False, False, 0)
+    checks: list[tuple[Gtk.CheckButton, Song]] = []
+
+    def selected() -> list[Song]:
+        return [song for check, song in checks if check.get_active()]
+
+    def update(*_args) -> None:
+        chosen = selected()
+        cards.remove_all()
+        cards.hide()
+        ok.set_sensitive(False)
+        if not chosen:
+            status.set_text("Noch nichts angehakt.")
+            return
+        missing = [song.display_name for song in chosen if song.key not in drawn_keys]
+        parts = [f"{len(chosen)} angehakt · "
+                 + ("alle schon gespielt ✓" if not missing else "noch NICHT gespielt: " + ", ".join(missing))]
+        matches = find(chosen)
+        if len(matches) > MAX_LISTED_CARDS:
+            # Viele Karten enthalten die Songs – wer „Bingo“ ruft, muss das Ziel aber erreicht haben
+            winners = [item for item in matches if item[1]]
+            if 0 < len(winners) <= MAX_LISTED_CARDS:
+                parts.append(f"{len(matches)} Karten enthalten diese Songs, {len(winners)} davon mit "
+                             "erreichtem Gewinnziel.")
+                matches = winners
+        if not matches:
+            parts.append("Keine Karte enthält alle angehakten Songs – bitte die Auswahl prüfen.")
+        elif len(matches) > MAX_LISTED_CARDS:
+            parts.append(f"{len(matches)} Karten passen – weitere Songs der Reihe anhaken.")
+        else:
+            matches = sorted(matches, key=lambda item: (not item[1], item[0]))
+            for number, reached in matches:
+                cards.append(str(number), f"Karte #{number}" + (" – Gewinnziel erreicht ✓" if reached else ""))
+            cards.set_active(0)
+            cards.show()
+            ok.set_sensitive(True)
+            parts.append("Passende Karte gefunden." if len(matches) == 1
+                         else f"{len(matches)} Karten passen – bitte die richtige wählen.")
+        status.set_text(" ".join(parts))
+
+    # Gespielte Songs zuerst – nur sie können in einer Gewinnreihe stehen
+    for song in sorted(songs, key=lambda item: (item.key not in drawn_keys, item.display_name.casefold())):
+        row = Gtk.Box(spacing=10)
+        check = Gtk.CheckButton(label=song.display_name)
+        check.connect("toggled", update)
+        row.pack_start(check, True, True, 0)
+        played = song.key in drawn_keys
+        row.pack_end(label("gespielt ✓" if played else "noch nicht", "small", "muted" if played else "warning-text"),
+                     False, False, 0)
+        rows.add(row)
+        checks.append((check, song))
+
+    def visible(row) -> bool:
+        text = search.get_text().strip().casefold()
+        return not text or text in checks[row.get_index()][1].display_name.casefold()
+
+    rows.set_filter_func(visible)
+    search.connect("search-changed", lambda *_: rows.invalidate_filter())
+    update()
+    dialog.set_default_size(620, 560)
+    dialog.show_all()
+    search.grab_focus()
+    response = dialog.run()
+    number = cards.get_active_id()
+    dialog.destroy()
+    return int(number) if response == Gtk.ResponseType.OK and number else None
 
 
 def bingo_result_dialog(parent: Gtk.Window, card: BingoCard, number: int, name: str, size: int,

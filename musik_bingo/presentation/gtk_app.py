@@ -17,7 +17,13 @@ from musik_bingo.application.song_timer import SongTimer
 from musik_bingo.domain.catalog import Catalog, parse_catalog
 from musik_bingo.domain.evening import DuplicateWinner, next_stage, next_stage_label, winners_csv
 from musik_bingo.domain.forecast import WIN_TARGET_LABELS, WIN_TARGETS
-from musik_bingo.domain.card_generator import NotEnoughSongs, required_songs, unique_card_capacity, winning_cells
+from musik_bingo.domain.card_generator import (
+    NotEnoughSongs,
+    cards_containing,
+    required_songs,
+    unique_card_capacity,
+    winning_cells,
+)
 from musik_bingo.domain.matching import PlayingTrack, SongMatcher, compare_with_playlist
 from musik_bingo.domain.models import Song
 from musik_bingo.domain.playlist import from_player_tracks, to_csv, to_m3u, to_text
@@ -38,6 +44,7 @@ DEFAULT_SONGS = DEFAULT_SONGS_PATH.read_text(encoding="utf-8")
 PAGES = ("songs", "cards", "game")
 TARGET_LABELS = {"lokal": "Lokale Dateien", "spotify": "Spotify", "youtube": "YouTube", "ytmusic": "YouTube Music"}
 EXTERNAL_TARGETS = ("spotify", "youtube", "ytmusic")
+NAVIGATION_KEYS = (Gdk.KEY_Tab, Gdk.KEY_ISO_Left_Tab, Gdk.KEY_Up, Gdk.KEY_Down, Gdk.KEY_Left, Gdk.KEY_Right)
 
 
 def cairo_available() -> bool:
@@ -124,7 +131,11 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self._build()
         self._restore()
         self.timer_source = GLib.timeout_add_seconds(1, self._timer_tick)
+        # Tastenkürzel: Wer per Tab/Pfeiltasten navigiert, bedient das fokussierte Element;
+        # ein Mausklick beendet diesen Modus wieder.
+        self.keyboard_navigating = False
         self.connect("key-press-event", self._on_key)
+        self.connect("button-press-event", self._on_pointer)
         self.connect("delete-event", self._before_close)
         if catalog_errors:
             self._set_status("Kataloge teilweise nicht lesbar: " + "; ".join(catalog_errors))
@@ -1326,6 +1337,14 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         if answer is None:
             return
         number, name = answer
+        if number == dialogs.WITHOUT_NUMBER:
+            # Nummer unleserlich/fehlt: Karte über die vorgelesenen Songs der Gewinnreihe finden
+            def find(songs: list[Song]) -> list[tuple[int, bool]]:
+                return [(found, self.service.check_win(found)[0])
+                        for found in cards_containing(game.cards, songs)]
+            number = dialogs.find_card_dialog(self, game.songs, {song.key for song in game.caller.drawn}, find)
+            if number is None:
+                return
         try:
             reached, wins, full = self.service.check_win(number)
         except ValueError as error:
@@ -2160,16 +2179,37 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             ]),
             ("Tastatur", ["Leertaste: nächster Song", "Rücktaste: Ziehung zurücknehmen",
                           "T: Titel zeigen/verbergen (auch auf dem Beamer)", "P: Song-Timer pausieren/fortsetzen",
-                          "F11: Vollbild"]),
+                          "F11: Vollbild",
+                          "Die Kürzel wirken auf der Spielleitung immer – außer beim Tippen im Suchfeld "
+                          "oder nach Tab/Pfeiltasten (dann bedient die Leertaste das markierte Element; "
+                          "ein Mausklick schaltet zurück)."]),
+            ("Bingo prüfen", [
+                "Mit Kartennummer: Nummer eingeben → Karte mit Gewinnlinie wird angezeigt.",
+                "Ohne Kartennummer (unleserlich, fehlt): „Ohne Kartennummer …“ → die vorgelesenen Songs "
+                "der Gewinnreihe anhaken → die App zeigt, ob alle gespielt sind, und findet die Karte.",
+            ]),
         ])
+
+    def _on_pointer(self, _window, _event) -> bool:
+        self.keyboard_navigating = False
+        return False
 
     def _on_key(self, _window, event) -> bool:
         if event.keyval == Gdk.KEY_F11:
             self._toggle_fullscreen()
             return True
+        if event.keyval in NAVIGATION_KEYS:
+            self.keyboard_navigating = True
+            return False
         focus = self.get_focus()
-        if self.stack.get_visible_child_name() != "game" or isinstance(focus, (Gtk.TextView, Gtk.Entry)):
-            return False  # Texteingaben (auch Zahlenfelder) bekommen jede Taste
+        if self.stack.get_visible_child_name() != "game":
+            return False
+        if isinstance(focus, Gtk.SpinButton):
+            # Zahlenfelder (Timer): Ziffern und Rücktaste gehören dem Feld, Kürzel nicht
+            if event.keyval not in (Gdk.KEY_space, Gdk.KEY_t, Gdk.KEY_T, Gdk.KEY_p, Gdk.KEY_P):
+                return False
+        elif isinstance(focus, (Gtk.TextView, Gtk.Entry)):
+            return False  # Texteingaben (Suche, Titel) bekommen jede Taste
         # Buchstaben-Kürzel gelten immer – kein Bedienelement nutzt T oder P selbst.
         if event.keyval in (Gdk.KEY_t, Gdk.KEY_T) and self.service.game.caller.current is not None:
             self.reveal_button.set_active(not self.reveal_button.get_active())
@@ -2177,10 +2217,12 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         if event.keyval in (Gdk.KEY_p, Gdk.KEY_P) and self.timer.phase != "aus":
             self._toggle_timer_pause()
             return True
-        # Leertaste/Rücktaste gehören einem Bedienelement nur, wenn es per Tab gezielt
-        # angesteuert wurde: Mausklicks setzen auf der Spielleitung keinen Fokus (focus_on_click aus).
-        if isinstance(focus, (Gtk.Button, Gtk.Switch, Gtk.Range, Gtk.ComboBox, Gtk.ListBoxRow,
-                              Gtk.FlowBoxChild, Gtk.ModelButton)) and focus.has_visible_focus():
+        # Leertaste/Rücktaste gehören einem Bedienelement nur, wenn es per Tab/Pfeiltasten gezielt
+        # angesteuert wurde. Nicht has_visible_focus() nehmen: GTK schaltet die Fokus-Anzeige bei
+        # JEDEM echten Tastendruck ein – dann bekam z. B. der Seitenleisten-Eintrag die Leertaste.
+        if self.keyboard_navigating and isinstance(
+                focus, (Gtk.Button, Gtk.Switch, Gtk.Range, Gtk.ComboBox, Gtk.ListBoxRow,
+                        Gtk.FlowBoxChild, Gtk.ModelButton)):
             return False
         if event.keyval == Gdk.KEY_space and self.draw_button.get_sensitive():
             self._draw_next()
