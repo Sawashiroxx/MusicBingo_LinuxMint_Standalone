@@ -39,6 +39,11 @@ def scenario(w):
     pump(0.6)
     check(f"Screenshot {THEME}-karten", screenshot(w, OUT / f"{THEME}-karten.png"))
     w._select_page("game")
+    pump(0.3)
+    minimum = w.get_preferred_width()[0]
+    print(f"Mindestbreite Spielleitung: {minimum}px")
+    # Regression: vier Wiedergabeziele in einer Zeile machten das Fenster breiter als 1366er-Bildschirme
+    check(f"{THEME}: Spielleitung passt auf 1366-px-Bildschirme (mit Rahmen)", minimum <= 1320)
     caller = w.service.game.caller
     card = w.service.game.cards[0]
     for song in card.songs[:5]:
@@ -47,6 +52,16 @@ def scenario(w):
     w._render_caller()
     pump(0.6)
     check(f"Screenshot {THEME}-spielleitung", screenshot(w, OUT / f"{THEME}-spielleitung.png"))
+    w.service.set_event_title("Weihnachtsfeier 2026")
+    w.timer_spin.set_value(45)
+    w._new_song_started()
+    w.beamer_button.set_active(True)
+    w.beamer.move(0, 0)
+    w.beamer.resize(1280, 720)
+    pump(0.8)
+    check(f"Screenshot {THEME}-beamer", screenshot(w.beamer, OUT / f"{THEME}-beamer.png"))
+    w.beamer_button.set_active(False)
+    w.timer_spin.set_value(0)
     game = w.service.game
     dialog_shot("dialog-bingo", lambda: dialogs.bingo_result_dialog(
         w, card, 1, "Gast", 5, True, {s.key for s in caller.drawn}, w.service.check_bingo(1),

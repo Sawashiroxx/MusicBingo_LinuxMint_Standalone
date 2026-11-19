@@ -1,4 +1,4 @@
-"""Links auf Spotify- und YouTube-Titel erkennen und vereinheitlichen.
+"""Links auf Spotify- und YouTube-(Music-)Titel erkennen und vereinheitlichen.
 
 Es werden nur zwei Linkarten akzeptiert, damit importierte Listen keine
 beliebigen Adressen in die App tragen:
@@ -73,3 +73,20 @@ def spotify_web_search_url(title: str, artist: str) -> str:
 
 def youtube_search_url(title: str, artist: str) -> str:
     return "https://www.youtube.com/results?search_query=" + quote(search_text(title, artist), safe="")
+
+
+def youtube_video_id(link: str) -> str:
+    """Video-ID eines vereinheitlichten YouTube-Links, sonst ""."""
+    return link.rsplit("=", 1)[-1] if is_youtube(link) else ""
+
+
+def youtube_music_url(link: str) -> str:
+    """Derselbe Titel in YouTube Music (gleiche Video-ID)."""
+    video_id = youtube_video_id(link)
+    if not _YOUTUBE_ID.match(video_id):
+        raise ValueError("Kein YouTube-Link")
+    return f"https://music.youtube.com/watch?v={video_id}"
+
+
+def youtube_music_search_url(title: str, artist: str) -> str:
+    return "https://music.youtube.com/search?q=" + quote(search_text(title, artist), safe="")

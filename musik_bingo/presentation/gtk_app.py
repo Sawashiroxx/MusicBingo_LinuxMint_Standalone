@@ -11,8 +11,11 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
+from musik_bingo.application.beamer_state import build_beamer_state
 from musik_bingo.application.game_service import GameService
+from musik_bingo.application.song_timer import SongTimer
 from musik_bingo.domain.catalog import Catalog, parse_catalog
+from musik_bingo.domain.evening import DuplicateWinner, next_stage, next_stage_label, winners_csv
 from musik_bingo.domain.forecast import WIN_TARGET_LABELS, WIN_TARGETS
 from musik_bingo.domain.card_generator import NotEnoughSongs, required_songs, unique_card_capacity, winning_cells
 from musik_bingo.domain.matching import PlayingTrack, SongMatcher, compare_with_playlist
@@ -25,6 +28,7 @@ from musik_bingo.infrastructure.audio_player import AudioPlayer
 from musik_bingo.infrastructure.file_store import FileStore
 from musik_bingo.infrastructure.launcher import has_scheme_handler, open_uri, plan_launch
 from musik_bingo.presentation import dialogs, printing
+from musik_bingo.presentation.beamer import BeamerWindow
 from musik_bingo.presentation.dialogs import MODE_APPEND, add_class, escape, field, label
 from musik_bingo.presentation.theme import css_for
 
@@ -32,7 +36,8 @@ from musik_bingo.paths import CATALOG_DIR, DEFAULT_SONGS as DEFAULT_SONGS_PATH, 
 
 DEFAULT_SONGS = DEFAULT_SONGS_PATH.read_text(encoding="utf-8")
 PAGES = ("songs", "cards", "game")
-TARGET_LABELS = {"lokal": "Lokale Dateien", "spotify": "Spotify", "youtube": "YouTube"}
+TARGET_LABELS = {"lokal": "Lokale Dateien", "spotify": "Spotify", "youtube": "YouTube", "ytmusic": "YouTube Music"}
+EXTERNAL_TARGETS = ("spotify", "youtube", "ytmusic")
 
 
 def cairo_available() -> bool:
@@ -95,7 +100,13 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.unmatched_track: PlayingTrack | None = None
         self.spotify_scheme = has_scheme_handler("spotify")
         self.reader: mpris.PlaylistReader | None = None
-        self.forecast_text = ""
+        self.forecast_text = ""  # Prognose-Text der aktuellen Runde
+        # Abend: Beamer, Aufdecken, Timer, Gewinner-Banner
+        self.beamer: BeamerWindow | None = None
+        self.revealed = False
+        self.banner = ""
+        self.timer = SongTimer()
+        self.timer_source = 0
         self.closing = False
 
         self.theme = "dark"
@@ -112,6 +123,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         )
         self._build()
         self._restore()
+        self.timer_source = GLib.timeout_add_seconds(1, self._timer_tick)
         self.connect("key-press-event", self._on_key)
         self.connect("delete-event", self._before_close)
         if catalog_errors:
@@ -177,7 +189,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.status = label("Bereit · Spielstände werden nur lokal gespeichert", "small")
         self.status.set_ellipsize(Pango.EllipsizeMode.END)
         status_bar.pack_start(self.status, True, True, 0)
-        status_bar.pack_end(label("Leertaste: ziehen · Rücktaste: zurück · F11: Vollbild", "small"), False, False, 0)
+        status_bar.pack_end(label("Leertaste: ziehen · Rücktaste: zurück · T: Titel aufdecken · P: Timer-Pause · F11: Vollbild", "small"), False, False, 0)
         root.pack_end(status_bar, False, False, 0)
         self._apply_theme()
 
@@ -330,6 +342,13 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         columns.pack_start(right, False, False, 0)
         settings_frame, settings = self._panel("Karten vorbereiten", "Jede Karte bekommt eine andere Songkombination.")
         right.pack_start(settings_frame, False, False, 0)
+        self.title_entry = Gtk.Entry()
+        self.title_entry.set_max_length(60)
+        self.title_entry.set_placeholder_text("z. B. Weihnachtsfeier 2026")
+        self.title_entry.set_text("Musik Bingo")
+        self.title_entry.connect("changed", self._title_changed)
+        settings.pack_start(field("Titel der Feier", self.title_entry, "Steht auf jeder Karte und auf dem Beamer."),
+                            False, False, 0)
         self.size_combo = Gtk.ComboBoxText()
         for value in (3, 4, 5):
             self.size_combo.append_text(f"{value} × {value}")
@@ -431,19 +450,23 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         columns.pack_start(left_scroll, True, True, 0)
 
         # Wiedergabequelle
-        source = add_class(Gtk.Box(spacing=12), "panel-flat")
-        source.pack_start(label("Wiedergabe über", "tiny", "muted"), False, False, 0)
+        # Zwei Zeilen: Ziele oben, „Player folgen“ darunter – so bleibt das Fenster schmal genug
+        # für 1366er-Bildschirme, auch mit vier Wiedergabezielen.
+        source = add_class(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10), "panel-flat")
+        source_row = Gtk.Box(spacing=12)
+        source_row.pack_start(label("Wiedergabe über", "tiny", "muted"), False, False, 0)
         targets = add_class(Gtk.Box(spacing=0), "linked")
         self.target_buttons: dict[str, Gtk.RadioButton] = {}
         group = None
-        for key in ("lokal", "spotify", "youtube"):
+        for key in ("lokal", "spotify", "youtube", "ytmusic"):
             button = Gtk.RadioButton.new_with_label_from_widget(group, TARGET_LABELS[key])
             button.set_mode(False)
             group = group or button
             button.connect("toggled", self._target_changed, key)
             targets.pack_start(button, False, False, 0)
             self.target_buttons[key] = button
-        source.pack_start(targets, False, False, 0)
+        source_row.pack_start(targets, False, False, 0)
+        source.pack_start(source_row, False, False, 0)
         follow_box = Gtk.Box(spacing=8)
         self.follow_switch = Gtk.Switch()
         self.follow_switch.set_valign(Gtk.Align.CENTER)
@@ -451,11 +474,11 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         follow_box.pack_start(self.follow_switch, False, False, 0)
         follow_label = label("Player folgen")
         follow_label.set_tooltip_text(
-            "Die Playlist läuft in Spotify oder YouTube (gerne im Zufallsmodus). Die App zieht automatisch "
+            "Die Playlist läuft in Spotify, YouTube oder YouTube Music (gerne im Zufallsmodus). Die App zieht automatisch "
             "den Song, der gerade läuft, und warnt, wenn er nicht auf den Karten steht."
         )
         follow_box.pack_start(follow_label, False, False, 0)
-        source.pack_end(follow_box, False, False, 0)
+        source.pack_start(follow_box, False, False, 0)
         left.pack_start(source, False, False, 0)
 
         # Jetzt-Anzeige
@@ -502,7 +525,43 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         controls.attach(self.draw_button, 0, 0, 2, 1)
         controls.attach(self.undo_button, 2, 0, 1, 1)
         controls.attach(self.verify_button, 3, 0, 1, 1)
+        self.stage_button = self._button("Weiter: 2 Reihen", self._advance_stage, icon="go-next-symbolic",
+                                         tooltip="Nächstes Gewinnziel – die Ziehung läuft weiter. "
+                                                 "Nach „Volle Karte“ beginnt eine neue Runde (neu gemischt).")
+        controls.attach(self.stage_button, 0, 1, 4, 1)
         left.pack_start(controls, False, False, 0)
+
+        show_frame, show = self._panel("Beamer & Timer",
+                                       "Beamer: zweites Fenster für die Gäste (Doppelklick/F11 = Vollbild). "
+                                       "Der Songtitel bleibt verborgen, bis du ihn aufdeckst (Taste T).")
+        show_row = Gtk.Box(spacing=8)
+        self.beamer_button = Gtk.ToggleButton(label="Beamer öffnen")
+        self.beamer_button.set_image(Gtk.Image.new_from_icon_name("video-display-symbolic", Gtk.IconSize.BUTTON))
+        self.beamer_button.set_always_show_image(True)
+        self.beamer_button.connect("toggled", self._beamer_toggled)
+        self.reveal_button = Gtk.ToggleButton(label="Titel aufdecken (T)")
+        self.reveal_button.connect("toggled", self._reveal_toggled)
+        show_row.pack_start(self.beamer_button, False, False, 0)
+        show_row.pack_start(self.reveal_button, False, False, 0)
+        show.pack_start(show_row, False, False, 0)
+        timer_row = Gtk.Box(spacing=10)
+        self.timer_spin = Gtk.SpinButton.new_with_range(0, 600, 5)
+        self.timer_spin.set_tooltip_text("Sekunden pro Song, danach automatisch weiter. 0 = Timer aus.")
+        self.timer_spin.connect("value-changed", self._timer_settings_changed)
+        self.reveal_spin = Gtk.SpinButton.new_with_range(0, 30, 1)
+        self.reveal_spin.set_value(5)
+        self.reveal_spin.set_tooltip_text("Sekunden, in denen der Titel vor dem nächsten Song aufgelöst wird. 0 = keine Auflösung.")
+        self.reveal_spin.connect("value-changed", self._timer_settings_changed)
+        self.timer_pause_button = self._button("Pause (P)", self._toggle_timer_pause, icon="media-playback-pause-symbolic")
+        timer_row.pack_start(label("Song-Timer (s)", "small"), False, False, 0)
+        timer_row.pack_start(self.timer_spin, False, False, 0)
+        timer_row.pack_start(label("Auflösung (s)", "small"), False, False, 0)
+        timer_row.pack_start(self.reveal_spin, False, False, 0)
+        timer_row.pack_start(self.timer_pause_button, False, False, 0)
+        show.pack_start(timer_row, False, False, 0)
+        self.timer_label = label("Timer aus", "panel-title")
+        show.pack_start(self.timer_label, False, False, 0)
+        left.pack_start(show_frame, False, False, 0)
 
         play_panel = add_class(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10), "panel-flat")
         play_row = Gtk.Box(spacing=8)
@@ -531,6 +590,15 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         history.pack_start(self.history, False, False, 0)
         left.pack_start(history_frame, False, False, 0)
 
+        winners_frame, winners_box = self._panel("Gewinnerliste",
+                                                 "Wird über „Bingo prüfen“ gefüllt. Dieselbe Karte kann nicht doppelt gewinnen.")
+        self.winners_list = Gtk.ListBox()
+        self.winners_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        winners_box.pack_start(self.winners_list, False, False, 0)
+        winners_box.pack_start(self._button("Als CSV exportieren …", self._export_winners,
+                                            icon="document-save-as-symbolic"), False, False, 0)
+        left.pack_start(winners_frame, False, False, 0)
+
         pool_frame, pool_content = self._panel("Songpool", "Doppelklick markiert einen Song von Hand als gezogen.")
         pool_frame.set_size_request(330, -1)
         columns.pack_start(pool_frame, False, False, 0)
@@ -550,7 +618,18 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         pool_scroll.add(self.pool_list)
         pool_content.pack_start(pool_scroll, True, True, 0)
         self._render_caller()
+        self._no_focus_on_click(page)
         return page
+
+    @classmethod
+    def _no_focus_on_click(cls, widget: Gtk.Widget) -> None:
+        """Nach einem Mausklick behält kein Knopf den Fokus – sonst würde die Leertaste ihn erneut auslösen
+        (z. B. „Titel aufdecken“ statt „Nächster Song“)."""
+        if isinstance(widget, (Gtk.Button, Gtk.Switch, Gtk.ComboBox)):
+            widget.set_focus_on_click(False)
+        if isinstance(widget, Gtk.Container):
+            for child in widget.get_children():
+                cls._no_focus_on_click(child)
 
     # ================================================================ Zustand
 
@@ -567,6 +646,12 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             self.auto_play_check.set_active(service.auto_play)
             self.target_buttons[service.playback_target].set_active(True)
             self.win_buttons[service.win_target].set_active(True)
+            self.title_entry.set_text(service.event_title)
+            self.timer_spin.set_value(service.timer_seconds)
+            self.reveal_spin.set_value(service.reveal_seconds)
+            self.timer.configure(service.timer_seconds, service.reveal_seconds)
+            self.timer.stop()
+            self.banner = ""
             self.print_per_page = service.per_page
             self.follow_switch.set_active(False)
         finally:
@@ -575,6 +660,9 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self._render_cards()
         self._render_caller()
         self._update_forecast()
+        self._render_winners()
+        self._set_revealed(False)
+        self.header.set_subtitle(f"{self.service.event_title} · offline")
 
     def _restore(self) -> None:
         try:
@@ -593,7 +681,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self._apply_service_to_widgets(saved)
         self.nav.select_row(self.nav.get_row_at_index(2 if saved.game.cards else 0))
         self._set_status("Gespeicherter Spielstand geladen")
-        if follow and saved.playback_target in ("spotify", "youtube"):
+        if follow and saved.playback_target in EXTERNAL_TARGETS:
             # Folgen-Modus erst nach dem Aufbau des Fensters versuchen (ohne Fehlermeldung).
             GLib.idle_add(self._resume_follow)
 
@@ -602,7 +690,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             self.follow_switch.set_active(True)
         else:
             self.service.follow_player = False
-            self._set_status("Player folgen ist aus: Spotify/YouTube läuft gerade nicht.")
+            self._set_status("Player folgen ist aus: Der gewählte Player läuft gerade nicht.")
         return False
 
     def _song_text(self) -> str:
@@ -754,7 +842,8 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         if not players:
             dialogs.message(
                 self, Gtk.MessageType.INFO, "Kein Player gefunden",
-                "Starte zuerst Spotify (Desktop-App) oder spiele die YouTube-Playlist im Browser ab. "
+                "Starte zuerst Spotify (Desktop-App), die YouTube-Music-App oder spiele die Playlist im Browser ab "
+                "(youtube.com bzw. music.youtube.com). "
                 "Dann erneut versuchen.")
             return
         dialog, content, _ok = dialogs.base_dialog(self, "Playlist vom Player einlesen", "Einlesen starten", 560)
@@ -878,6 +967,11 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             self._stop_all_playback()
             self._hide_warning()
             self.last_track_identity = ""
+            self.timer.stop()
+            self.banner = ""
+            self._set_revealed(False)
+            self._sync_win_buttons()
+            self._render_winners()
             self._render_cards()
             self._render_caller()
             self._save()
@@ -935,7 +1029,9 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         for number, card in enumerate(cards, start=1):
             frame = add_class(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8), "bingo-card")
             head = add_class(Gtk.Box(), "card-head")
-            head.pack_start(label("♪ MUSIK BINGO"), False, False, 0)
+            title_label = label("♪ " + self.service.event_title.upper())
+            title_label.set_ellipsize(Pango.EllipsizeMode.END)
+            head.pack_start(title_label, True, True, 0)
             head.pack_end(label(f"#{number}"), False, False, 0)
             frame.pack_start(head, False, False, 0)
             grid = Gtk.Grid(column_spacing=3, row_spacing=3, column_homogeneous=True, row_homogeneous=True)
@@ -997,7 +1093,8 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
     def _draw_card(self, cr, card, number: int, x: float, y: float, width: float, height: float) -> None:
         game = self.service.game
         printing.draw_card(cr, card, number, x, y, width, height, game.size, game.free_space,
-                           bool(getattr(game, "diagonal_wins", False)))
+                           bool(getattr(game, "diagonal_wins", False)),
+                           getattr(self.service, "event_title", "Musik Bingo").upper())
 
     @staticmethod
     def _draw_centered_text(cr, text: str, x: float, y: float, width: float, height: float) -> None:
@@ -1069,7 +1166,8 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.progress.set_fraction(count / total if total else 0)
         if self.service.game.cards:
             rule = "Reihen & Spalten" + (" & Diagonalen" if self.service.game.diagonal_wins else "")
-            self.rule_pill.set_text(f"Ziel: {WIN_TARGET_LABELS[self.service.win_target]} · {rule}")
+            self.rule_pill.set_text(f"Runde {self.service.round_number} · Ziel: "
+                                    f"{WIN_TARGET_LABELS[self.service.win_target]} · {rule}")
         else:
             self.rule_pill.set_text("Noch keine Runde")
         self.pool_meta.set_text(f"{total} Songs · {count} gezogen · {total - count} offen")
@@ -1093,6 +1191,10 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.history.show_all()
         self._update_audio_controls()
         self._update_summary()
+        if hasattr(self, "stage_button"):
+            self.stage_button.set_label(next_stage_label(self.service.win_target))
+            self.stage_button.set_sensitive(bool(self.service.game.cards))
+        self._update_beamer()
 
     def _update_source_chip(self) -> None:
         song = self.service.game.caller.current
@@ -1105,7 +1207,8 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             elif target == "spotify":
                 text = "Spotify-Titel verknüpft" if song.link.startswith("spotify:") else "Spotify: über Suche"
             else:
-                text = "YouTube-Video verknüpft" if song.link.startswith("https://www.youtube") else "YouTube: über Suche"
+                name = TARGET_LABELS[target]
+                text = f"{name}: Titel verknüpft" if song.link.startswith("https://www.youtube") else f"{name}: über Suche"
         if self.follow_switch.get_active() and self.now_playing:
             text = f"Im Player: {self.now_playing.label}"
         self.source_chip.set_text(text)
@@ -1126,9 +1229,17 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
 
     def _take_song(self, song: Song, status: str) -> None:
         if self.service.draw_song(song):
+            self._new_song_started()
             self._render_caller()
             self._save()
             self._set_status(status)
+
+    def _new_song_started(self) -> None:
+        """Nach jedem gezogenen Song: Titel verbergen, Banner weg, Timer neu starten."""
+        self.banner = ""
+        self._set_revealed(False)
+        if self.service.game.caller.current is not None:
+            self.timer.start()
 
     def _draw_next(self, _button=None) -> None:
         if self.follow_switch.get_active():
@@ -1138,6 +1249,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         if self.audio_player:
             self.audio_player.stop()
         if self.service.game.caller.draw_next():
+            self._new_song_started()
             self._render_caller()
             self._save()
             if self.service.auto_play:
@@ -1147,6 +1259,9 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         if self.audio_player:
             self.audio_player.stop()
         if self.service.game.caller.undo():
+            self.timer.stop()
+            self.banner = ""
+            self._set_revealed(False)
             # Im Folgen-Modus den aktuellen Player-Titel NICHT neu bewerten – sonst
             # würde der zurückgenommene Song sofort wieder gezogen.
             if not self.follow_switch.get_active():
@@ -1156,11 +1271,20 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
 
     def _reshuffle(self, _button) -> None:
         if self.service.game.caller.index >= 0 and not dialogs.confirm(
-            self, "Ziehung neu mischen?", "Der bisherige Ziehfortschritt wird zurückgesetzt.", "Neu mischen"
+            self, "Ziehung neu mischen?",
+            f"Der bisherige Ziehfortschritt wird zurückgesetzt. Es beginnt Runde {self.service.round_number + 1} "
+            "mit „1 Reihe“; die Gewinnerliste bleibt erhalten.", "Neu mischen"
         ):
             return
         self._stop_all_playback()
-        self.service.game.caller.reshuffle()
+        if self.service.game.caller.index >= 0:
+            self.service.restart_round()
+            self._sync_win_buttons()
+        else:
+            self.service.game.caller.reshuffle()
+        self.timer.stop()
+        self.banner = ""
+        self._set_revealed(False)
         self.last_track_identity = ""
         self._render_caller()
         self._save()
@@ -1172,6 +1296,17 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             return
         rule = (f"{WIN_TARGET_LABELS[self.service.win_target]} – Reihen und Spalten"
                 + (" sowie Diagonalen" if game.diagonal_wins else ""))
+        was_paused = self.timer.paused
+        self.timer.pause()  # während der Prüfung zählt der Timer nicht weiter
+        try:
+            self._check_card(rule)
+        finally:
+            if not was_paused:
+                self.timer.resume()
+            self._update_beamer()
+
+    def _check_card(self, rule: str) -> None:
+        game = self.service.game
         answer = dialogs.bingo_check_dialog(self, len(game.cards), rule)
         if answer is None:
             return
@@ -1183,9 +1318,214 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             return
         card = game.cards[number - 1]
         cells = winning_cells(card, game.size, game.free_space, game.caller.drawn, game.diagonal_wins)
-        dialogs.bingo_result_dialog(self, card, number, name, game.size, game.free_space,
-                                    {song.key for song in game.caller.drawn}, wins, cells,
-                                    WIN_TARGET_LABELS[self.service.win_target], reached, full)
+        register = dialogs.bingo_result_dialog(self, card, number, name, game.size, game.free_space,
+                                               {song.key for song in game.caller.drawn}, wins, cells,
+                                               WIN_TARGET_LABELS[self.service.win_target], reached, full)
+        if register:
+            self._register_winner(number, name)
+
+    def _register_winner(self, number: int, name: str) -> None:
+        try:
+            winner = self.service.add_winner(number, name)
+        except DuplicateWinner as duplicate:
+            same_stage = (duplicate.previous.round == self.service.round_number
+                          and duplicate.previous.target == self.service.win_target)
+            if same_stage:
+                dialogs.message(self, Gtk.MessageType.INFO, "Schon eingetragen", str(duplicate))
+                return
+            if not dialogs.confirm(
+                self, "Karte hat schon gewonnen",
+                f"{duplicate}\n\nTrotzdem auch für „{WIN_TARGET_LABELS[self.service.win_target]}“ eintragen?",
+                "Trotzdem eintragen",
+            ):
+                return
+            winner = self.service.add_winner(number, name, allow_repeat=True)
+        except ValueError as error:
+            dialogs.message(self, Gtk.MessageType.WARNING, "Nicht eingetragen", str(error))
+            return
+        self.timer.stop()  # Stufe entschieden – weiter mit dem Stufen-Button
+        self.banner = f"BINGO! Karte #{winner.card}" + (f" · {winner.name}" if winner.name else "")
+        self._save()
+        self._render_winners()
+        self._render_caller()
+        self._set_status(f"Gewinner eingetragen: {self.banner} – weiter mit „{next_stage_label(self.service.win_target)}“")
+
+    # ================================================================ Abend: Stufen, Beamer, Timer, Gewinner
+
+    def _advance_stage(self, _button=None) -> None:
+        if not self.service.game.cards:
+            return
+        following, new_round = next_stage(self.service.win_target)
+        if new_round and not dialogs.confirm(
+            self, f"Runde {self.service.round_number + 1} starten?",
+            "Die Ziehung wird neu gemischt und beginnt wieder mit „1 Reihe“. "
+            "Die gedruckten Karten bleiben gültig, die Gewinnerliste bleibt erhalten.", "Neue Runde",
+        ):
+            return
+        self.service.advance_stage()
+        self._sync_win_buttons()
+        self.timer.stop()
+        self.banner = ""
+        self._set_revealed(False)
+        if new_round:
+            self._stop_all_playback()
+            self.last_track_identity = ""
+        self._save()
+        self._render_caller()
+        self._set_status(f"Runde {self.service.round_number} · Ziel: {WIN_TARGET_LABELS[following]}")
+
+    def _sync_win_buttons(self) -> None:
+        self._loading_state = True
+        try:
+            self.win_buttons[self.service.win_target].set_active(True)
+        finally:
+            self._loading_state = False
+
+    def _set_revealed(self, value: bool) -> None:
+        self.revealed = bool(value)
+        if hasattr(self, "reveal_button") and self.reveal_button.get_active() != self.revealed:
+            self.reveal_button.handler_block_by_func(self._reveal_toggled)
+            self.reveal_button.set_active(self.revealed)
+            self.reveal_button.handler_unblock_by_func(self._reveal_toggled)
+        self._update_beamer()
+
+    def _reveal_toggled(self, button: Gtk.ToggleButton) -> None:
+        self.revealed = button.get_active()
+        self._update_beamer()
+
+    def _beamer_toggled(self, button: Gtk.ToggleButton) -> None:
+        if button.get_active() and self.beamer is None:
+            self.beamer = BeamerWindow(self)
+            self.beamer.connect("delete-event", self._beamer_closed)
+            self.beamer.show_all()
+            if not self.beamer.place_on_second_monitor(self):
+                self._set_status("Beamer-Fenster geöffnet – auf den Beamer ziehen und doppelklicken (Vollbild).")
+            self._update_beamer()
+            button.set_label("Beamer schließen")
+        elif not button.get_active() and self.beamer is not None:
+            beamer, self.beamer = self.beamer, None
+            beamer.destroy()
+            button.set_label("Beamer öffnen")
+
+    def _beamer_closed(self, *_args) -> bool:
+        self.beamer = None
+        self.beamer_button.set_active(False)
+        self.beamer_button.set_label("Beamer öffnen")
+        return False
+
+    def _update_beamer(self) -> None:
+        if hasattr(self, "timer_label"):
+            self.timer_label.set_text(self.timer.label())
+            self.timer_pause_button.set_label("Weiter (P)" if self.timer.paused else "Pause (P)")
+            self.timer_pause_button.set_sensitive(self.timer.phase != "aus")
+        if self.beamer is not None:
+            timer_text = self.timer.label() if self.timer.phase != "aus" else ""
+            self.beamer.update(build_beamer_state(self.service, self.revealed, timer_text, self.banner))
+
+    def _restart_timer_in_follow(self) -> None:
+        """Folgen-Modus: Auch bei bereits gezogenem/fremdem Titel weiterzählen, sonst bleibt der Timer stehen."""
+        if self.follow_switch.get_active() and self.timer.enabled and self.timer.phase == "aus":
+            self.timer.start()
+
+    def _modal_dialog_open(self) -> bool:
+        return any(top is not self and top is not self.beamer and top.get_visible() and top.get_modal()
+                   for top in Gtk.Window.list_toplevels())
+
+    def _timer_tick(self) -> bool:
+        if self.closing:
+            self.timer_source = 0
+            return False
+        if self._modal_dialog_open():
+            return True  # Rückfrage/Dialog offen: Timer steht, nichts passiert im Hintergrund
+        event = self.timer.tick()
+        if event == "reveal":
+            self._set_revealed(True)
+        elif event == "next":
+            caller = self.service.game.caller
+            if self.follow_switch.get_active() or len(caller.drawn) < len(caller.pool):
+                self._draw_next()
+            else:
+                self._set_status("Alle Songs gespielt – Timer angehalten.")
+        if event or self.timer.phase != "aus":
+            self._update_beamer()
+        return True
+
+    def _toggle_timer_pause(self, _button=None) -> None:
+        if self.timer.paused:
+            self.timer.resume()
+        else:
+            self.timer.pause()
+        self._update_beamer()
+
+    def _timer_settings_changed(self, *_args) -> None:
+        if self._loading_state:
+            return
+        seconds, reveal = self.timer_spin.get_value_as_int(), self.reveal_spin.get_value_as_int()
+        self.service.set_timer(seconds, reveal)
+        self.timer.configure(seconds, reveal)
+        self._save()
+        self._update_beamer()
+
+    def _title_changed(self, entry: Gtk.Entry) -> None:
+        if self._loading_state:
+            return
+        self.service.set_event_title(entry.get_text())
+        self.header.set_subtitle(f"{self.service.event_title} · offline")
+        self._update_beamer()
+        self._render_cards()
+        if self.song_save_source:
+            GLib.source_remove(self.song_save_source)
+        self.song_save_source = GLib.timeout_add(650, self._save_song_edits)
+
+    def _render_winners(self) -> None:
+        if not hasattr(self, "winners_list"):
+            return
+        for child in self.winners_list.get_children():
+            self.winners_list.remove(child)
+        if not self.service.winners:
+            self.winners_list.add(label("Noch keine Gewinner.", "muted", "small"))
+        for index, winner in enumerate(self.service.winners):
+            row = Gtk.Box(spacing=8)
+            text = (f"Runde {winner.round} · {winner.target_label} · Karte #{winner.card}"
+                    + (f" · {winner.name}" if winner.name else "") + f" · nach {winner.song_count} Songs")
+            row.pack_start(label(text, wrap=True), True, True, 0)
+            remove = Gtk.Button.new_from_icon_name("edit-delete-symbolic", Gtk.IconSize.BUTTON)
+            remove.set_tooltip_text("Eintrag löschen (z. B. bei Versehen)")
+            add_class(remove, "flat")
+            remove.connect("clicked", self._remove_winner, index)
+            row.pack_end(remove, False, False, 0)
+            self.winners_list.add(row)
+        self.winners_list.show_all()
+
+    def _remove_winner(self, _button, index: int) -> None:
+        if not 0 <= index < len(self.service.winners):
+            return
+        winner = self.service.winners[index]
+        if dialogs.confirm(self, "Gewinner löschen?",
+                           f"Karte #{winner.card} ({winner.target_label}, Runde {winner.round})", "Löschen"):
+            self.service.remove_winner(index)
+            self._save()
+            self._render_winners()
+
+    def _export_winners(self, _button) -> None:
+        if not self.service.winners:
+            dialogs.message(self, Gtk.MessageType.INFO, "Keine Gewinner", "Die Gewinnerliste ist noch leer.")
+            return
+        dialog = Gtk.FileChooserDialog(title="Gewinnerliste exportieren", transient_for=self,
+                                       action=Gtk.FileChooserAction.SAVE)
+        dialog.add_buttons("Abbrechen", Gtk.ResponseType.CANCEL, "Exportieren", Gtk.ResponseType.ACCEPT)
+        dialog.set_do_overwrite_confirmation(True)
+        dialog.set_current_name("gewinner.csv")
+        filename = dialog.get_filename() if dialog.run() == Gtk.ResponseType.ACCEPT else None
+        dialog.destroy()
+        if not filename:
+            return
+        try:
+            Path(filename).write_text(winners_csv(self.service.winners, self.service.event_title), encoding="utf-8")
+        except OSError as error:
+            dialogs.message(self, Gtk.MessageType.ERROR, "Export fehlgeschlagen", str(error))
+            return
+        self._set_status(f"Gewinnerliste exportiert: {Path(filename).name}")
 
     # ================================================================ Wiedergabe
 
@@ -1257,6 +1597,9 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             elif target == "spotify":
                 detail = ("Spotify-Desktop-App nicht gestartet – Titel werden über "
                           + ("die Spotify-App geöffnet." if self.spotify_scheme else "den Spotify-Webplayer im Browser geöffnet."))
+            elif target == "ytmusic":
+                detail = ("Keine YouTube-Music-App/kein Browser-Tab erkannt – Titel öffnen sich in YouTube Music "
+                          "im Standardbrowser (dort mit Premium anmelden).")
             else:
                 detail = "YouTube öffnet sich im Standardbrowser."
             if follow:
@@ -1385,7 +1728,13 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
 
     def _player_fits_target(self, info: mpris.PlayerInfo) -> bool:
         target = self.service.playback_target
-        return (target != "spotify" or info.is_spotify) and (target != "youtube" or info.is_browser)
+        if target == "spotify":
+            return info.is_spotify
+        if target == "youtube":
+            return info.is_browser
+        if target == "ytmusic":
+            return info.is_youtube_music_app or info.is_browser
+        return True
 
     def _connect_player(self, quiet: bool) -> bool:
         if self.player is not None:
@@ -1397,7 +1746,8 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         info = mpris.choose_player(players, self.service.player_name, target)
         if info is None:
             if not quiet:
-                what = "Spotify (Desktop-App)" if target == "spotify" else "YouTube im Browser"
+                what = {"spotify": "Spotify (Desktop-App)", "youtube": "YouTube im Browser",
+                        "ytmusic": "die YouTube-Music-App oder music.youtube.com im Browser"}.get(target, "den Player")
                 dialogs.message(self, Gtk.MessageType.INFO, "Kein passender Player gefunden",
                                 f"Starte {what} und die Playlist, dann erneut einschalten."
                                 + (f"\n\nGefunden wurden: {', '.join(p.identity for p in players)}" if players else ""))
@@ -1478,12 +1828,14 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
                 f"<b>Läuft im Player, steht aber nicht auf den Karten:</b>\n{escape(track.label)}\n"
                 "<small>Überspringen oder rechts per Doppelklick den passenden Song markieren.</small>")
             self.warning_revealer.set_reveal_child(True)
+            self._restart_timer_in_follow()
             self._set_status(f"Nicht auf den Karten: {track.label}")
             self._update_source_chip()
             return
         self._hide_warning()
         if caller.is_drawn(song):
             self._set_status(f"Läuft erneut (bereits gezogen): {song.display_name}")
+            self._restart_timer_in_follow()
             self._render_caller()
             return
         self._take_song(song, f"Aus {self.player.info.identity if self.player else 'Player'} übernommen: {song.display_name}")
@@ -1623,6 +1975,8 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.service.per_page = self.print_per_page
         self.service.diagonal_wins = self.diagonal_check.get_active()
         self.service.auto_play = self.auto_play_check.get_active()
+        if hasattr(self, "title_entry"):
+            self.service.set_event_title(self.title_entry.get_text())
         self._save()
 
     def _backup(self, reason: str) -> None:
@@ -1642,6 +1996,12 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
 
     def _before_close(self, _window, _event) -> bool:
         self.closing = True
+        if self.timer_source:
+            GLib.source_remove(self.timer_source)
+            self.timer_source = 0
+        if self.beamer is not None:
+            beamer, self.beamer = self.beamer, None
+            beamer.destroy()
         if self.song_save_source:
             GLib.source_remove(self.song_save_source)
             self.song_save_source = 0
@@ -1742,20 +2102,32 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
                 "Vor neuen Karten oder einem Import wird automatisch gesichert: "
                 "~/.local/share/musik-bingo/sicherungen/ (die letzten 10). Wiederherstellen über "
                 "Menü → Spielstand importieren.",
-                "Spotify/YouTube werden nur über die lokale Player-Schnittstelle (MPRIS) gesteuert oder per "
+                "Spotify/YouTube/YouTube Music werden nur über die lokale Player-Schnittstelle (MPRIS) gesteuert oder per "
                 "Klick im Browser geöffnet – wie ein selbst angeklickter Link.",
                 "Chart- und Weihnachtslisten sind fest in der App gespeichert (Stand KW 47/2026).",
             ]),
             ("Bingo = Playlist", [
                 "Weg A: Playlist in Spotify bauen → als CSV exportieren (z. B. Exportify) → „Playlist importieren“.",
-                "Weg B: Playlist in Spotify/YouTube starten → „Vom Player einlesen“.",
+                "Weg B: Playlist in Spotify/YouTube/YouTube Music starten → „Vom Player einlesen“.",
                 "Weg C: Zufallsmix/Liste hier bauen → „Als Playlist exportieren“ (Text) → per TuneMyMusic o. Ä. "
-                "in Spotify/YouTube anlegen.",
+                "in Spotify/YouTube Music anlegen.",
                 "Vor dem Spiel: „Mit Playlist abgleichen“ zeigt fehlende oder überzählige Titel.",
                 "Im Spiel: „Player folgen“ – die Playlist läuft im Player, die App zieht automatisch mit und "
                 "warnt bei Titeln, die nicht auf den Karten stehen.",
             ]),
-            ("Tastatur", ["Leertaste: nächster Song", "Rücktaste: Ziehung zurücknehmen", "F11: Vollbild"]),
+            ("YouTube Music (Premium)", [
+                "Oben „Wiedergabe über: YouTube Music“ wählen.",
+                "Empfohlen: Playlist in YouTube Music bauen und abspielen – in der YouTube-Music-Desktop-App "
+                "(z. B. th-ch „YouTube Music“, mit Premium angemeldet) oder auf music.youtube.com im Browser.",
+                "Dann „Vom Player einlesen“ → Karten erzeugen → „Player folgen“ einschalten.",
+                "Ohne Folgen: „Abspielen“ öffnet den gezogenen Titel (oder die Suche) auf music.youtube.com "
+                "im Standardbrowser.",
+                "Ob der Browser „nächster Titel“ an YouTube Music weitergibt, hängt vom Browser ab – im Zweifel "
+                "die Desktop-App nehmen.",
+            ]),
+            ("Tastatur", ["Leertaste: nächster Song", "Rücktaste: Ziehung zurücknehmen",
+                          "T: Titel zeigen/verbergen (auch auf dem Beamer)", "P: Song-Timer pausieren/fortsetzen",
+                          "F11: Vollbild"]),
         ])
 
     def _on_key(self, _window, event) -> bool:
@@ -1763,11 +2135,19 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             self._toggle_fullscreen()
             return True
         focus = self.get_focus()
-        # Leertaste/Rücktaste gehören dem fokussierten Bedienelement (Knopf, Schalter, Regler, Eingabe).
-        if isinstance(focus, (Gtk.TextView, Gtk.Entry, Gtk.SpinButton, Gtk.ComboBox, Gtk.Button,
-                              Gtk.Switch, Gtk.Range, Gtk.ListBoxRow, Gtk.FlowBoxChild, Gtk.ModelButton)):
-            return False
-        if self.stack.get_visible_child_name() != "game":
+        if self.stack.get_visible_child_name() != "game" or isinstance(focus, (Gtk.TextView, Gtk.Entry)):
+            return False  # Texteingaben (auch Zahlenfelder) bekommen jede Taste
+        # Buchstaben-Kürzel gelten immer – kein Bedienelement nutzt T oder P selbst.
+        if event.keyval in (Gdk.KEY_t, Gdk.KEY_T) and self.service.game.caller.current is not None:
+            self.reveal_button.set_active(not self.reveal_button.get_active())
+            return True
+        if event.keyval in (Gdk.KEY_p, Gdk.KEY_P) and self.timer.phase != "aus":
+            self._toggle_timer_pause()
+            return True
+        # Leertaste/Rücktaste gehören einem Bedienelement nur, wenn es per Tab gezielt
+        # angesteuert wurde: Mausklicks setzen auf der Spielleitung keinen Fokus (focus_on_click aus).
+        if isinstance(focus, (Gtk.Button, Gtk.Switch, Gtk.Range, Gtk.ComboBox, Gtk.ListBoxRow,
+                              Gtk.FlowBoxChild, Gtk.ModelButton)) and focus.has_visible_focus():
             return False
         if event.keyval == Gdk.KEY_space and self.draw_button.get_sensitive():
             self._draw_next()

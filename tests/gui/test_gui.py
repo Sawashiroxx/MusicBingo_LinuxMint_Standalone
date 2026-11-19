@@ -30,8 +30,15 @@ class GuiTests(unittest.TestCase):
     def test_full_game_flow(self):
         self.scenario("full_flow.py")
 
+    def test_evening_features(self):
+        """Titel, Beamer, Timer, Gewinnerliste, Stufen und Runden im echten Fenster."""
+        self.scenario("feier.py")
+
     def test_follow_spotify_end_to_end(self):
         self.scenario("follow_spotify.py")
+
+    def test_follow_youtube_music_end_to_end(self):
+        self.scenario("follow_ytmusic.py")
 
     def test_edge_cases(self):
         for mode in ("broken", "deep", "defaults", "empty", "big"):
@@ -54,7 +61,7 @@ class GuiTests(unittest.TestCase):
         for theme in ("dark", "light"):
             with self.subTest(theme=theme):
                 self.scenario("screenshots.py", theme, str(target))
-        self.assertGreaterEqual(len(list(target.glob("*.png"))), 12)  # 6 Ansichten × 2 Designs
+        self.assertGreaterEqual(len(list(target.glob("*.png"))), 14)  # 7 Ansichten × 2 Designs
 
 
 if __name__ == "__main__":

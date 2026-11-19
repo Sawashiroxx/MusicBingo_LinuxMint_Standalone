@@ -143,6 +143,24 @@ label.bingo-cell {{ background-color: {cell}; border: 1px solid {cell_border}; b
 .bingo-cell-line label, label.bingo-cell-line {{ color: #1a1406; font-weight: 800; }}
 dialog .dialog-vbox, messagedialog .dialog-vbox, dialog box, messagedialog box {{ background-color: transparent; }}
 dialog headerbar, messagedialog headerbar {{ border-bottom: none; }}
+
+/* Beamer-Fenster für die Gäste */
+.beamer {{ background-image: linear-gradient(160deg, {hero1}, {hero2}); }}
+.beamer label {{ color: #ffffff; }}
+.beamer-event {{ font-size: 30px; font-weight: 900; letter-spacing: 3px; color: {accent}; }}
+.beamer .beamer-event {{ color: {accent}; }}
+.beamer-round {{ font-size: 26px; font-weight: 700; color: {hero_muted}; }}
+.beamer .beamer-round {{ color: {hero_muted}; }}
+.beamer-song {{ font-size: 64px; font-weight: 900; }}
+.beamer-title {{ font-size: 92px; font-weight: 900; }}
+.beamer-artist {{ font-size: 48px; font-weight: 600; color: {hero_muted}; }}
+.beamer .beamer-artist {{ color: {hero_muted}; }}
+.beamer-timer {{ font-size: 40px; font-weight: 800; color: {accent}; }}
+.beamer .beamer-timer {{ color: {accent}; }}
+.beamer-recent {{ font-size: 24px; color: {hero_muted}; }}
+.beamer .beamer-recent {{ color: {hero_muted}; }}
+.beamer-banner {{ background-color: {accent}; border-radius: 24px; padding: 18px 40px; }}
+.beamer .beamer-banner label {{ color: {accent_text}; font-size: 54px; font-weight: 900; }}
 """
 
 

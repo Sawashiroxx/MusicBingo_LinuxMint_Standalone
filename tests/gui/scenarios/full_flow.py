@@ -113,9 +113,10 @@ def scenario(w):
     check("Gewinnziel in der Kopfzeile sichtbar", "Volle Karte" in w.rule_pill.get_text())
     before_switch = len(w.service.game.caller.drawn)
     w.follow_switch.grab_focus()
+    w.set_focus_visible(True)  # per Tab angesteuert
     event = Gdk.Event.new(Gdk.EventType.KEY_PRESS)
     event.keyval = Gdk.KEY_space
-    check("Leertaste auf Schalter zieht keinen Song", not w._on_key(w, event)
+    check("Leertaste auf per Tab angesteuertem Schalter zieht keinen Song", not w._on_key(w, event)
           and len(w.service.game.caller.drawn) == before_switch)
     result = {}
     dialogs.bingo_check_dialog = lambda parent, count, rule: (1, "Oma")

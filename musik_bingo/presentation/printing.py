@@ -47,6 +47,19 @@ def _star(cr, cx: float, cy: float, r: float) -> None:
     cr.fill()
 
 
+def fit_title(cr, title: str, available: float, font_size: float, minimum: float = 6.0) -> tuple[str, float]:
+    """Verkleinert die Schrift bis ``minimum``; reicht das nicht (z. B. „ß“ → „SS“), wird mit „…“ gekürzt."""
+    cr.set_font_size(font_size)
+    while font_size > minimum and cr.text_extents(title)[2] > available:
+        font_size = max(minimum, font_size - 0.5)
+        cr.set_font_size(font_size)
+    if cr.text_extents(title)[2] > available:
+        while title and cr.text_extents(title + "…")[2] > available:
+            title = title[:-1]
+        title = title.rstrip() + "…"
+    return title, font_size
+
+
 def wrap_lines(cr, text: str, max_width: float, max_lines: int = 4) -> list[str]:
     """Bricht Text in Zeilen um; überlange Wörter werden zeichenweise geteilt."""
     lines: list[str] = []
@@ -115,15 +128,20 @@ def draw_card(cr, card, number: int, x: float, y: float, width: float, height: f
     cr.set_source_rgb(*GREEN)
     cr.fill()
     cr.select_font_face("Sans", 0, 1)
-    cr.set_font_size(head_h * 0.46)
+    label = f"Karte #{number}"
+    font_size = head_h * 0.46
+    cr.set_font_size(font_size)
+    label_width = cr.text_extents(label)[2]
+    title_x = x + pad + 14 + head_h * 0.55
+    available = (x + width - pad - 12 - label_width - 16) - title_x
+    title, font_size = fit_title(cr, title, available, font_size)
     cr.set_source_rgb(1, 1, 1)
     _note(cr, x + pad + 14, y + pad + head_h * 0.5, head_h * 0.5)
-    cr.move_to(x + pad + 14 + head_h * 0.55, y + pad + head_h * 0.66)
+    cr.move_to(title_x, y + pad + head_h * 0.66)
     cr.show_text(title)
-    label = f"Karte #{number}"
-    extents = cr.text_extents(label)
+    cr.set_font_size(head_h * 0.46)
     cr.set_source_rgb(0.98, 0.84, 0.45)
-    cr.move_to(x + width - pad - 12 - extents[2], y + pad + head_h * 0.66)
+    cr.move_to(x + width - pad - 12 - label_width, y + pad + head_h * 0.66)
     cr.show_text(label)
 
     name_y = y + pad + head_h + 16

@@ -32,6 +32,7 @@ ALLOWED_URI_PREFIXES = (
     "spotify:track:", "spotify:search:", "https://open.spotify.com/track/",
     "https://open.spotify.com/search/", "https://www.youtube.com/watch?v=",
     "https://www.youtube.com/results?search_query=",
+    "https://music.youtube.com/watch?v=", "https://music.youtube.com/search?q=",
 )
 
 
@@ -145,14 +146,16 @@ class LinkWhitelistTests(unittest.TestCase):
             title = "".join(rng.choice(alphabet) for _ in range(rng.randint(1, 30)))
             artist = "".join(rng.choice(alphabet) for _ in range(rng.randint(0, 20)))
             song = Song(title, artist)
-            for target in ("spotify", "youtube"):
+            for target in ("spotify", "youtube", "ytmusic"):
                 for mpris_on, scheme in ((True, True), (False, True), (False, False)):
                     uri = plan_launch(song, target, mpris_on, scheme).uri
                     self.assertTrue(uri.startswith(ALLOWED_URI_PREFIXES), uri)
                     self.assertFalse(any(ch in uri for ch in " \n\t\x00\"'<>`$|\\#"), uri)
                     # Nach dem festen Präfix darf kein weiterer Pfad/Host entstehen
                     rest = uri.split(":search:", 1)[-1].split("/search/", 1)[-1].split("search_query=", 1)[-1]
+                    rest = rest.split("search?q=", 1)[-1]
                     self.assertNotIn("/", rest)
+                    self.assertNotIn("&", rest)
 
 
 class SaveFileTests(unittest.TestCase):
@@ -204,6 +207,34 @@ class SaveFileTests(unittest.TestCase):
             with self.assertRaises((RecursionError, ValueError)):
                 FileStore.import_from(path)
             self.assertLess(time.perf_counter() - start, 5)
+
+
+class EveningInputTests(unittest.TestCase):
+    """Feiertitel und Gewinnernamen landen auf Karten, Beamer, CSV – nur sauberer Text."""
+
+    def test_title_and_names_are_cleaned_in_save_files(self):
+        data = sample_service().to_dict()
+        data["settings"]["event_title"] = "\u202eFeier\x00\n" + "x" * 5000
+        data["winners"] = [{"round": 1, "target": "reihe", "card": 1, "name": "\u2066Name\x1b[31m" + "y" * 900,
+                            "song_count": 5}]
+        restored = GameService.from_dict(data)
+        self.assertEqual(len(restored.event_title), 60)
+        self.assertTrue(restored.event_title.startswith("Feier"))
+        name = restored.winners[0].name
+        self.assertLessEqual(len(name), 60)
+        self.assertFalse(any(ord(char) < 32 or char in "\u202e\u2066" for char in name))
+
+    def test_too_many_winners_are_rejected(self):
+        data = sample_service().to_dict()
+        data["winners"] = [{"round": 1, "target": "reihe", "card": 1, "name": "", "song_count": 1}] * 1001
+        with self.assertRaises(ValueError):
+            GameService.from_dict(data)
+
+    def test_csv_export_neutralizes_formulas_everywhere(self):
+        from musik_bingo.domain.evening import Winner, winners_csv
+        text = winners_csv([Winner(1, "reihe", 3, "@SUMME(A1)", 4)], "=cmd|' /C calc'!A0")
+        for cell in ("=cmd", "@SUMME"):
+            self.assertNotIn("," + cell, "," + text.replace("\n", ","))
 
 
 class ImportLimitTests(unittest.TestCase):

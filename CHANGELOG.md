@@ -1,5 +1,24 @@
 # Änderungsprotokoll
 
+## 2.4 – November 2026
+
+- YouTube Music als viertes Wiedergabeziel (neben lokalen Dateien, Spotify und YouTube): Titel bzw. Suche auf
+  music.youtube.com öffnen, „Player folgen“ und „Vom Player einlesen“ mit YouTube-Music-Desktop-App oder Browser.
+- Spielleitung: „Player folgen“ in eigener Zeile, damit das Fenster auf 1366-px-Bildschirme passt.
+- Hilfe: Abschnitt YouTube Music, Tastenkürzel T und P ergänzt.
+
+## 2.3 – November 2026
+
+- Beamer-Ansicht für die Gäste: zweites Fenster (Vollbild auf dem zweiten Bildschirm), Songtitel verborgen bis
+  zum Aufdecken (Taste T), Runde, Gewinnziel, Countdown, zuletzt gespielte Songs, BINGO-Banner.
+- Song-Timer: nach einstellbaren Sekunden kurze Auflösung, dann automatisch der nächste Song (auch mit Spotify);
+  pausiert während der Bingo-Prüfung, Taste P.
+- Gewinnerliste: Eintrag direkt aus „Bingo prüfen“, nur bei erreichtem Ziel, dieselbe Karte nicht doppelt,
+  Export als CSV.
+- Stufen-Button: 1 Reihe → 2 Reihen → Volle Karte (Ziehung läuft weiter), danach neue Runde (neu gemischt).
+- Titel der Feier auf Karten, Kartenvorschau und Beamer.
+- Automatisches GitHub-Release: Tag `v*` → Tests → ZIP, tar.gz, Prüfsummen und Release-Notizen.
+
 ## 2.2 – November 2026
 
 - Behoben: Dateidialog im dunklen Design unlesbar (App-Design deutete GTK-Klassen `cell`/`sidebar` um).
