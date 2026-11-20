@@ -52,6 +52,8 @@ cd ~/MusicBingo_LinuxMint_Standalone && git checkout main && git pull && bash sc
 
 ## Ablauf
 
+Zum Ausdrucken für die Moderation: [Anleitung für die Spielleitung (PDF)](docs/ANLEITUNG-SPIELLEITUNG.pdf).
+
 1. **Songs & Playlist:** Liste importieren oder Zufallsmix erstellen → *Karten erzeugen*
 2. **Bingokarten:** *Drucken / PDF*
 3. **Spielleitung:** *Beamer öffnen*, Song-Timer einstellen, ziehen (Leertaste, T = Titel aufdecken, P = Timer-Pause, Rücktaste = zurück) oder *Player folgen* → *Bingo prüfen* → *Als Gewinner eintragen* → *Weiter: 2 Reihen* …
@@ -99,6 +101,7 @@ Die GitHub-Pipeline führt Lint, Unit- (Mint 21 + 22), Integrations-, Sicherheit
 
 | Dokument | Inhalt |
 |---|---|
+| [docs/ANLEITUNG-SPIELLEITUNG.pdf](docs/ANLEITUNG-SPIELLEITUNG.pdf) | Anleitung für Moderation/Spielleitung: Spielzeit planen, Ablauf, Bingo prüfen, Notfälle (Quelle: `docs/anleitung/`) |
 | [docs/ARCHITEKTUR.md](docs/ARCHITEKTUR.md) | Aufbau, Regeln, Datenformat |
 | [docs/TESTPROTOKOLL.md](docs/TESTPROTOKOLL.md) | Prüfstand und manuelle Checkliste |
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Ablauf für Änderungen |

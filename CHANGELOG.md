@@ -26,6 +26,7 @@ Behoben nach der dritten Gesamtprüfung (Claude Fable 5.2, höchste Stufe):
   - Ein Projektordner mit Backslash im Namen funktioniert im Menüeintrag.
   - Das Update stört sich nicht an verlorenen Ausführungsrechten (USB-Stick, Cloud-Ordner).
 - **Aufgeräumt:** Die alte HTML-Urversion (`docs/legacy/`) ist entfernt.
+- **Neu:** Die Anleitung für die Spielleitung liegt als PDF in `docs/ANLEITUNG-SPIELLEITUNG.pdf`, mit Spielzeit-Planung, Ablauf und Notfall-Tabelle. Die Screenshots sind aktualisiert.
 
 ## 2.5 – November 2026
 
