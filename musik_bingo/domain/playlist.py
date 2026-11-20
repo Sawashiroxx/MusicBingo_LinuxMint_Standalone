@@ -23,7 +23,7 @@ MAX_IMPORT_SONGS = 2000
 
 _URL = re.compile(r"(?:https?://\S+|spotify:track:[A-Za-z0-9]+)")
 _EN_DASH = re.compile(r"\s+[–—]\s+")
-_HYPHEN = re.compile(r"\s+-\s+")
+_BARE_SPOTIFY_ID = re.compile(r"^[A-Za-z0-9]{22}$")
 
 _TITLE_COLUMNS = ("track name", "titel", "title", "song", "songtitel", "track", "name", "song name")
 _ARTIST_COLUMNS = ("artist name(s)", "artist name", "artist", "artists", "interpret", "künstler", "kuenstler", "band")
@@ -120,15 +120,15 @@ def _find_column(header: list[str], names: tuple[str, ...]) -> int | None:
 def parse_csv(text: str) -> ImportResult:
     """CSV mit Kopfzeile (Spalten z. B. „Track Name“, „Artist Name(s)“, „Track URI“)."""
     text = text.lstrip("﻿")
-    sample = text[:4096]
+    # Trennzeichen aus der Kopfzeile bestimmen, Anführungszeichen ist immer ". csv.Sniffer rät sonst bei
+    # Titeln wie „'Til You Can't“ das Hochkomma als Anführungszeichen und verschluckt ganze Zeilen.
+    header_line = text.split("\n", 1)[0]
+    delimiter = max(",;\t", key=header_line.count)
     try:
-        dialect = csv.Sniffer().sniff(sample, delimiters=",;\t")
-    except csv.Error:
-        dialect = csv.excel
-    try:
-        rows = list(csv.reader(io.StringIO(text), dialect))
+        rows = list(csv.reader(io.StringIO(text), delimiter=delimiter, quotechar='"'))
     except csv.Error as error:
-        raise ValueError(f"Die CSV-Datei ist beschädigt oder ungewöhnlich aufgebaut: {error}") from error
+        raise ValueError("Die CSV-Datei ist beschädigt oder ungewöhnlich aufgebaut "
+                         "(falsche Kodierung? Bitte als „CSV UTF-8“ speichern).") from error
     collector = _Collector("CSV")
     if not rows:
         return collector.result
@@ -148,7 +148,10 @@ def parse_csv(text: str) -> ImportResult:
             return row[index] if index is not None and index < len(row) else ""
         artist = cell(artist_col)
         # Exportify trennt mehrere Interpreten mit Komma; für die Karte reicht das so.
-        song = _make_song(cell(title_col), artist, cell(link_col))
+        link = cell(link_col).strip()
+        if _BARE_SPOTIFY_ID.match(link):  # ältere Exportify-Dateien: Spalte „Spotify ID“ ohne „spotify:track:“
+            link = "spotify:track:" + link
+        song = _make_song(cell(title_col), artist, link)
         collector.add(song, ";".join(row))
     return collector.result
 

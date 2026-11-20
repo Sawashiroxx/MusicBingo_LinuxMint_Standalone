@@ -66,10 +66,13 @@ def read_text_file(path: Path) -> str:
     if path.stat().st_size > MAX_FILE_BYTES:
         raise ValueError("Die Datei ist größer als 5 MB und wird nicht eingelesen.")
     data = path.read_bytes()
+    if data[:2] in (b"\xff\xfe", b"\xfe\xff"):  # Excel „Unicode-Text“
+        return data.decode("utf-16")
     try:
         return data.decode("utf-8-sig")
     except UnicodeDecodeError:
-        return data.decode("latin-1")
+        # Windows-Dateien („ANSI“): cp1252 kennt – ’ „ “ …; Latin-1 machte daraus Steuerzeichen
+        return data.decode("cp1252", errors="replace")
 
 
 def base_dialog(parent: Gtk.Window, title: str, ok_label: str | None = "Übernehmen",
@@ -332,7 +335,10 @@ def bingo_check_dialog(parent: Gtk.Window, card_count: int, rule: str) -> tuple[
     dialog.add_button("Ohne Kartennummer …", RESPONSE_WITHOUT_NUMBER)
     content.pack_start(label("Nummer der gedruckten Karte eingeben. Geprüft werden nur bereits gezogene Songs.",
                              wrap=True), False, False, 0)
-    number = Gtk.SpinButton.new_with_range(1, max(1, card_count), 1)
+    # Bereich bewusst größer als die Kartenzahl: Der SpinButton kappt Eingaben sonst still auf den Bereich –
+    # „1600“ würde als Karte 160 geprüft, ein leeres Feld als Karte 1. So meldet die Prüfung „Ungültige Kartennummer“.
+    number = Gtk.SpinButton.new_with_range(0, 99999, 1)
+    number.set_value(1)
     number.set_activates_default(True)
     content.pack_start(field("Kartennummer", number), False, False, 0)
     name = Gtk.Entry()
@@ -344,7 +350,8 @@ def bingo_check_dialog(parent: Gtk.Window, card_count: int, rule: str) -> tuple[
     number.grab_focus()
     response = dialog.run()
     number.update()
-    result = (number.get_value_as_int(), name.get_text().strip())
+    # 0 = leeres/ungültiges Feld → -1, damit der Aufrufer „Ungültige Kartennummer“ meldet (0 heißt „ohne Nummer“)
+    result = (number.get_value_as_int() or -1, name.get_text().strip())
     dialog.destroy()
     if response == RESPONSE_WITHOUT_NUMBER:
         return WITHOUT_NUMBER, result[1]
@@ -484,6 +491,9 @@ def bingo_result_dialog(parent: Gtk.Window, card: BingoCard, number: int, name: 
         cell.set_justify(Gtk.Justification.CENTER)
         cell.set_size_request(96, 52)
         cell.set_max_width_chars(14)
+        cell.set_lines(4)  # ein überlanger Titel macht sonst alle Reihen hoch → Dialog höher als 768 px
+        cell.set_ellipsize(Pango.EllipsizeMode.END)
+        cell.set_tooltip_text(text)
         if is_free:
             add_class(cell, "bingo-cell-free")
         elif text.casefold() in drawn_keys:

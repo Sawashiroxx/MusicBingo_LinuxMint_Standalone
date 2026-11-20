@@ -58,6 +58,16 @@ EXTERNAL_TARGETS = ("spotify", "youtube")
 NAVIGATION_KEYS = (Gdk.KEY_Tab, Gdk.KEY_ISO_Left_Tab, Gdk.KEY_Up, Gdk.KEY_Down, Gdk.KEY_Left, Gdk.KEY_Right)
 
 
+def is_readable_file(path_text: str | None) -> bool:
+    """Wie Path.is_file(), aber ohne Ausnahme bei fehlenden Rechten, toten Netzlaufwerken oder „~unbekannt“."""
+    if not path_text:
+        return False
+    try:
+        return os.path.isfile(os.path.expanduser(path_text))
+    except (OSError, ValueError):
+        return False
+
+
 def cairo_available() -> bool:
     """Druck braucht die Cairo-Brücke von PyGObject (Paket python3-gi-cairo)."""
     try:
@@ -157,7 +167,11 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         # Tastenkürzel: Wer per Tab/Pfeiltasten navigiert, bedient das fokussierte Element;
         # ein Mausklick beendet diesen Modus wieder.
         self.keyboard_navigating = False
+        self._held_keys: dict[int, int] = {}   # Taste → Zeit des letzten Tastendrucks (ms, X-Server-Zeit)
+        self._last_click_draw = 0.0
         self.connect("key-press-event", self._on_key)
+        self.connect("key-release-event", self._on_key_release)
+        self.connect("focus-out-event", lambda *_args: self._held_keys.clear() or False)
         self.connect("button-press-event", self._on_pointer)
         self.connect("delete-event", self._before_close)
         if catalog_errors:
@@ -536,6 +550,23 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         source.pack_start(follow_box, False, False, 0)
         left.pack_start(source, False, False, 0)
 
+        # Bedienknöpfe zuerst: Ihre Lage hängt so nicht von Titellänge, Hinweisen und Warnungen darunter ab
+        controls = Gtk.Grid(column_spacing=10, row_spacing=10, column_homogeneous=True)
+        self.draw_button = self._button("Nächsten Song ziehen", self._draw_next, "primary", "big",
+                                        icon="media-playlist-shuffle-symbolic")
+        self.undo_button = self._button("Zurück", self._undo, "big", icon="edit-undo-symbolic")
+        self.verify_button = self._button("Bingo prüfen", self._verify_bingo, "big", icon="emblem-ok-symbolic")
+        self.shuffle_button = self._button("Neu mischen", self._reshuffle, icon="view-refresh-symbolic")
+        controls.attach(self.draw_button, 0, 0, 2, 1)
+        controls.attach(self.undo_button, 2, 0, 1, 1)
+        controls.attach(self.verify_button, 3, 0, 1, 1)
+        self.stage_button = self._button("Weiter: 2 Reihen", self._advance_stage, icon="go-next-symbolic",
+                                         tooltip="Nächstes Gewinnziel – die Ziehung läuft weiter. "
+                                                 "Nach „Volle Karte“ beginnt eine neue Runde (neu gemischt).")
+        controls.attach(self.stage_button, 0, 1, 4, 1)
+        left.pack_start(controls, False, False, 0)
+
+
         # Jetzt-Anzeige
         self.hero = add_class(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8), "hero")
         self.now_label = label("", "hero-kicker", xalign=0.5)
@@ -578,21 +609,6 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         warning.pack_end(self._button("Ausblenden", lambda *_: self._hide_warning(), "flat"), False, False, 0)
         self.warning_revealer.add(warning)
         left.pack_start(self.warning_revealer, False, False, 0)
-
-        controls = Gtk.Grid(column_spacing=10, row_spacing=10, column_homogeneous=True)
-        self.draw_button = self._button("Nächsten Song ziehen", self._draw_next, "primary", "big",
-                                        icon="media-playlist-shuffle-symbolic")
-        self.undo_button = self._button("Zurück", self._undo, "big", icon="edit-undo-symbolic")
-        self.verify_button = self._button("Bingo prüfen", self._verify_bingo, "big", icon="emblem-ok-symbolic")
-        self.shuffle_button = self._button("Neu mischen", self._reshuffle, icon="view-refresh-symbolic")
-        controls.attach(self.draw_button, 0, 0, 2, 1)
-        controls.attach(self.undo_button, 2, 0, 1, 1)
-        controls.attach(self.verify_button, 3, 0, 1, 1)
-        self.stage_button = self._button("Weiter: 2 Reihen", self._advance_stage, icon="go-next-symbolic",
-                                         tooltip="Nächstes Gewinnziel – die Ziehung läuft weiter. "
-                                                 "Nach „Volle Karte“ beginnt eine neue Runde (neu gemischt).")
-        controls.attach(self.stage_button, 0, 1, 4, 1)
-        left.pack_start(controls, False, False, 0)
 
         show_frame, show = self._panel("Beamer & Timer",
                                        "Beamer: zweites Fenster für die Gäste (Doppelklick/F11 = Vollbild). "
@@ -745,6 +761,10 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
     def _restore(self) -> None:
         try:
             saved = self.store.load()
+            if saved is not None:
+                # Auch das Anwenden kann scheitern (z. B. Zeichen, die GTK nicht darstellen kann) –
+                # dann ebenfalls mit leerer Runde starten statt ohne Fenster hängen zu bleiben.
+                self._apply_service_to_widgets(saved)
         except Exception as error:  # noqa: BLE001 – kaputte Datei darf den Start nie verhindern
             # Erst sichern: Schon das Schließen der App würde die Datei sonst überschreiben.
             try:
@@ -753,6 +773,11 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
                          else "Es gab keine Datei zum Sichern.")
             except OSError as backup_error:
                 where = f"Kopie konnte nicht angelegt werden: {backup_error}"
+            # Zurück auf den Auslieferungszustand – das Anwenden kann mittendrin abgebrochen sein
+            fresh = GameService()
+            fresh.song_text = DEFAULT_SONGS
+            fresh.card_count = 160
+            self._apply_service_to_widgets(fresh)
             dialogs.message(self, Gtk.MessageType.WARNING, "Spielstand konnte nicht geladen werden",
                             f"{error}\n\nDie App startet mit einer neuen Runde. {where}")
             self.nav.select_row(self.nav.get_row_at_index(0))
@@ -762,7 +787,6 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             self._update_summary()
             return
         follow = saved.follow_player
-        self._apply_service_to_widgets(saved)
         self.nav.select_row(self.nav.get_row_at_index(2 if saved.game.cards else 0))
         self._set_status("Gespeicherter Spielstand geladen")
         if follow and saved.playback_target in EXTERNAL_TARGETS:
@@ -1387,12 +1411,12 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
 
     def _take_song(self, song: Song, status: str) -> None:
         if self.service.draw_song(song):
+            self._save()
             # Von Hand markiert: Die Warnung „nicht auf den Karten“ ist erledigt – sonst würde
             # „Überspringen“ den gerade markierten Song im Player weiterschalten.
             self._hide_warning()
             self._new_song_started()
             self._render_caller()
-            self._save()
             self._set_status(status)
 
     def _new_song_started(self) -> None:
@@ -1404,6 +1428,12 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             self.timer.start()
 
     def _draw_next(self, _button=None) -> None:
+        if _button is not None:
+            # Doppelklick auf den Knopf zöge zwei Songs – der erste wäre nie zu hören gewesen
+            now = GLib.get_monotonic_time() / 1e6
+            if now - self._last_click_draw < 0.6:
+                return
+            self._last_click_draw = now
         if self.follow_switch.get_active():
             if self.player:
                 self.player.next(on_error=lambda m: self._set_status(f"Player reagiert nicht: {m}"))
@@ -1411,9 +1441,9 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         if self.audio_player:
             self.audio_player.stop()
         if self.service.game.caller.draw_next():
+            self._save()  # zuerst sichern: ein Fehler beim Zeichnen darf die Ziehung nicht kosten
             self._new_song_started()
             self._render_caller()
-            self._save()
             if self.service.auto_play:
                 self._play_audio(None, automatic=True)
 
@@ -1610,6 +1640,13 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         if self.closing:
             self.timer_source = 0
             return False
+        try:
+            self._timer_step()
+        except Exception as error:  # noqa: BLE001 – eine Ausnahme würde den Sekundentakt für immer beenden
+            self._set_status(f"Song-Timer: Fehler beim Weiterschalten ({error})")
+        return True
+
+    def _timer_step(self) -> bool:
         if self._modal_dialog_open():
             return True  # Rückfrage/Dialog offen: Timer steht, nichts passiert im Hintergrund
         phase_before = self.timer.phase
@@ -1764,8 +1801,8 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         follow = self.follow_switch.get_active()
         if target == "lokal":
             path_text = self.service.audio_file_for(song)
-            path = Path(path_text).expanduser() if path_text else None
-            file_exists = bool(path and path.is_file())
+            path = Path(os.path.expanduser(path_text)) if path_text else None
+            file_exists = is_readable_file(path_text)
             available = self.audio_player is not None
             if not available:
                 detail = self.audio_error or "Lokaler Audioplayer nicht verfügbar."
@@ -2220,10 +2257,17 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             return False
         player = self.player
 
-        def received(metadata: dict) -> None:
-            if self.player is player and mpris.track_identity(metadata) != self.last_track_identity:
+        def received(state: dict) -> None:
+            if self.player is not player:
+                return
+            status = state.get("PlaybackStatus")
+            if isinstance(status, str):
+                player.proxy.set_cached_property("PlaybackStatus", GLib.Variant("s", status))
+            metadata = state.get("Metadata")
+            metadata = metadata if isinstance(metadata, dict) else {}
+            if mpris.track_identity(metadata) != self.last_track_identity:
                 self._handle_metadata(metadata)
-        player.fetch_metadata(received)
+        player.fetch_state(received)
         return True
 
     def _player_changed(self) -> None:
@@ -2232,6 +2276,15 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
 
     def _handle_metadata(self, metadata: dict) -> None:
         identity = mpris.track_identity(metadata)
+        if (self.follow_switch.get_active() and self.player is not None and not self.player.is_playing()
+                and identity != self.last_track_identity):
+            # Nur laufende Titel ziehen. Ein pausiert geladener Titel (vom Vortag, nach „Spotify testen“) wurde sonst
+            # sofort als gespielt gezählt. last_track_identity bleibt stehen: Startet der Titel, kommt die
+            # Statusänderung hier erneut an und er wird gezogen.
+            self.now_playing = mpris.track_from_metadata(metadata)
+            self._update_audio_controls()
+            self._update_source_chip()
+            return
         if identity == self.last_track_identity:
             return
         self.last_track_identity = identity
@@ -2431,6 +2484,30 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             self.store.save(self.service)
         except (OSError, ValueError) as error:
             self._set_status(f"Lokal speichern fehlgeschlagen: {error}")
+            self._show_save_problem(error)
+            return
+        if getattr(self, "save_failed", False):
+            self.save_failed = False
+            self.privacy_pill.set_text("● offline")
+            self.privacy_pill.get_style_context().remove_class("pill-warn")
+            self.privacy_pill.get_style_context().add_class("pill-ok")
+
+    def _show_save_problem(self, error: Exception) -> None:
+        """Bleibt sichtbar, bis wieder gespeichert werden konnte – die Statuszeile wird sofort überschrieben."""
+        first = not getattr(self, "save_failed", False)
+        self.save_failed = True
+        if hasattr(self, "privacy_pill"):
+            self.privacy_pill.set_text("⚠ NICHT GESPEICHERT")
+            self.privacy_pill.get_style_context().remove_class("pill-ok")
+            self.privacy_pill.get_style_context().add_class("pill-warn")
+            self.privacy_pill.set_tooltip_text(f"Der Spielstand konnte nicht gespeichert werden: {error}")
+        if first and not self.closing:
+            # nicht aus dem laufenden Ereignis heraus (z. B. mitten im Ziehen) einen Dialog öffnen
+            GLib.idle_add(lambda: dialogs.message(
+                self, Gtk.MessageType.ERROR, "Spielstand wird nicht gespeichert",
+                f"Der Spielstand konnte nicht in {self.store.path} geschrieben werden:\n{error}\n\n"
+                "Die Runde läuft weiter, geht aber beim Schließen verloren. Bitte Speicherplatz und Rechte prüfen "
+                "oder über das Menü „Spielstand exportieren“ an einen anderen Ort sichern.") or False)
 
     def _before_close(self, _window, _event) -> bool:
         self.closing = True
@@ -2574,7 +2651,30 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.keyboard_navigating = False
         return False
 
+    SHORTCUT_KEYS = (Gdk.KEY_space, Gdk.KEY_BackSpace, Gdk.KEY_t, Gdk.KEY_T, Gdk.KEY_p, Gdk.KEY_P)
+
+    def _on_key_release(self, _window, event) -> bool:
+        self._held_keys.pop(Gdk.keyval_to_lower(event.keyval), None)
+        return False
+
+    def _is_key_repeat(self, event) -> bool:
+        """Tastenwiederholung des X-Servers (Taste wird gehalten): weitere Drücke ohne Loslassen.
+
+        Nur echte Ereignisse (mit Zeitstempel). Geht das Loslassen verloren (Fokuswechsel), gilt die Taste
+        nach 2 s ohne weiteren Druck wieder als frei.
+        """
+        if not event.time:
+            return False
+        key = Gdk.keyval_to_lower(event.keyval)
+        last = self._held_keys.get(key)
+        self._held_keys[key] = event.time
+        return last is not None and 0 <= event.time - last < 2000
+
     def _on_key(self, _window, event) -> bool:
+        if event.keyval in self.SHORTCUT_KEYS and self._is_key_repeat(event):
+            focus = self.get_focus()
+            if self.stack.get_visible_child_name() == "game" and not isinstance(focus, (Gtk.TextView, Gtk.Entry)):
+                return True  # gehaltene Taste: nicht noch einmal ziehen/zurücknehmen/aufdecken
         if event.keyval == Gdk.KEY_F11:
             self._toggle_fullscreen()
             return True
@@ -2622,10 +2722,10 @@ class MusikBingoApplication(Gtk.Application):
         window = self.props.active_window
         if window is None:
             window = MusikBingoWindow(self)
-        window.show_all()
-        window.warning_revealer.set_reveal_child(False)
-        window._update_source_chip()
-        window._update_audio_controls()
+            window.show_all()
+            window.warning_revealer.set_reveal_child(False)
+            window._update_source_chip()
+            window._update_audio_controls()
         window.present()
 
 

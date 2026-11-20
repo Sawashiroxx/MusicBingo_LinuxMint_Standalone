@@ -48,6 +48,13 @@ class Song:
             raise ValueError("Ein Song im Spielstand hat keinen Titel.")
         if len(title) > 300 or len(artist) > 300:
             raise ValueError("Ein Songtitel oder Interpret im Spielstand ist zu lang.")
+        for value in (title, artist):
+            try:
+                value.encode("utf-8")
+            except UnicodeEncodeError as error:
+                raise ValueError("Ein Song im Spielstand enthält ungültige Zeichen.") from error
+            if "\x00" in value:
+                raise ValueError("Ein Song im Spielstand enthält ungültige Zeichen.")
         return cls(title, artist, normalize_link(link))
 
 

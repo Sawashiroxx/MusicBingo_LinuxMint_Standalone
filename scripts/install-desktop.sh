@@ -24,6 +24,9 @@ done
 exec_pfad() {
   printf '%s' "$1" | sed -e 's/\\/\\\\\\\\/g' -e 's/["`$]/\\\\&/g' -e 's/%/%%/g'
 }
+# Path ist ein gewöhnlicher String-Wert: nur der Backslash muss verdoppelt werden (sonst wird „\n“ zum Zeilenumbruch
+# und der Start scheitert mit „Failed to change to directory“).
+PFAD_WERT="$(printf '%s' "$PROJEKT_ORDNER" | sed -e 's/\\/\\\\/g')"
 EXEC_PFAD="$(exec_pfad "$PROJEKT_ORDNER/scripts/starten.sh")"
 UPDATE_PFAD="$(exec_pfad "$PROJEKT_ORDNER/scripts/aktualisieren.sh")"
 
@@ -38,7 +41,7 @@ GenericName=Musik-Bingo-Spiel
 Comment=Musik-Bingo für private Feiern – Karten, Ziehung, Spotify/YouTube
 Icon=musik-bingo
 Exec=/bin/bash "$EXEC_PFAD"
-Path=$PROJEKT_ORDNER
+Path=$PFAD_WERT
 Terminal=false
 Categories=Game;
 Keywords=Bingo;Musik;Weihnachten;Party;Spotify;YouTube;
@@ -54,7 +57,7 @@ Name=Musik Bingo aktualisieren
 Comment=Neueste Version von Musik Bingo von GitHub laden
 Icon=system-software-update
 Exec=/bin/bash "$UPDATE_PFAD"
-Path=$PROJEKT_ORDNER
+Path=$PFAD_WERT
 Terminal=false
 Categories=Game;
 Keywords=Bingo;Update;Aktualisieren;

@@ -57,7 +57,8 @@ if pgrep -u "$(id -u)" -f "[m]usik_bingo\.main" >/dev/null 2>&1; then
 fi
 
 # Eigene Änderungen niemals überschreiben
-if ! git diff --quiet || ! git diff --cached --quiet; then
+# core.fileMode=false: Ein beim Kopieren (USB-Stick, Cloud-Ordner) verlorenes Ausführungsrecht ist keine Änderung
+if ! git -c core.fileMode=false diff --quiet || ! git -c core.fileMode=false diff --cached --quiet; then
   fehler "Im Projektordner gibt es geänderte Dateien – das Update wurde nicht gestartet, damit nichts verloren geht.
 
 Ordner: $PROJEKT_ORDNER"
@@ -105,7 +106,7 @@ fi
 
 # 3. Übernehmen (nur noch Vorspulen, kann nichts überschreiben)
 if [ "$AKTUELLER_ZWEIG" = "$ZWEIG" ]; then
-  git merge --quiet --ff-only "origin/$ZWEIG" >"$PROTOKOLL" 2>&1
+  git -c core.fileMode=false merge --quiet --ff-only "origin/$ZWEIG" >"$PROTOKOLL" 2>&1
 else
   # Tracking nur „wenn möglich“: Ein Klon nur eines Zweigs kennt origin/main nicht als Tracking-Zweig.
   # Das Skript selbst braucht es nicht (es holt main ausdrücklich), ein späteres „git pull“ schon.

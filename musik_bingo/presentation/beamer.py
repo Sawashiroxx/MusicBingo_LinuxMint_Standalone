@@ -28,6 +28,7 @@ class BeamerWindow(Gtk.Window):
         box.set_valign(Gtk.Align.FILL)
         root.add(box)
         self.event_label = label("", "beamer-event", xalign=0.5)
+        self.event_label.set_ellipsize(Pango.EllipsizeMode.END)
         self.round_label = label("", "beamer-round", xalign=0.5)
         self.song_label = label("", "beamer-song", xalign=0.5)
         self.title_label = label("", "beamer-title", wrap=True, xalign=0.5)
@@ -37,9 +38,13 @@ class BeamerWindow(Gtk.Window):
         self.artist_label = label("", "beamer-artist", wrap=True, xalign=0.5)
         self.artist_label.set_justify(Gtk.Justification.CENTER)
         self.timer_label = label("", "beamer-timer", xalign=0.5)
+        self.timer_label.set_ellipsize(Pango.EllipsizeMode.END)
         self.banner = add_class(Gtk.Box(), "beamer-banner")
         self.banner.set_halign(Gtk.Align.CENTER)
-        self.banner_label = label("", xalign=0.5)
+        self.banner_label = label("", wrap=True, xalign=0.5)
+        self.banner_label.set_justify(Gtk.Justification.CENTER)
+        self.banner_label.set_lines(2)
+        self.banner_label.set_ellipsize(Pango.EllipsizeMode.END)
         self.banner.pack_start(self.banner_label, True, True, 0)
         self.recent_label = label("", "beamer-recent", wrap=True, xalign=0.5)
         self.recent_label.set_justify(Gtk.Justification.CENTER)
@@ -54,6 +59,9 @@ class BeamerWindow(Gtk.Window):
         self.add_events(Gdk.EventMask.BUTTON_PRESS_MASK)
         self.connect("button-press-event", self._on_click)
         self.connect("key-press-event", self._on_key)
+        # Loslassen ebenfalls weiterreichen, sonst hält das Hauptfenster die Taste für „noch gedrückt“
+        self.connect("key-release-event", lambda _w, event: bool(self.host is not None
+                                                                 and self.host._on_key_release(self.host, event)))
         self.state: BeamerState | None = None
 
     def place_on_second_monitor(self, host: Gtk.Window) -> bool:
