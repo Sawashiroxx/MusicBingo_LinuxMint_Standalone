@@ -58,6 +58,7 @@ class MprisTests(unittest.TestCase):
         info = mpris.list_players(self.client)[0]
         player = mpris.MprisPlayer(info, self.client)
         try:
+            self.assertTrue(run_until(lambda: player.loaded))  # Eigenschaften kommen asynchron
             track = player.current_track()
             self.assertEqual((track.title, track.artist), ("Last Christmas", "Wham!"))
             self.assertEqual(track.url, "https://www.youtube.com/watch?v=E8gmARGvPlI")
@@ -69,13 +70,15 @@ class MprisTests(unittest.TestCase):
         info = mpris.list_players(self.client)[0]
         changes = []
         player = mpris.MprisPlayer(info, self.client, on_change=lambda: changes.append(player.current_track()))
+        self.assertTrue(run_until(lambda: player.loaded))  # Eigenschaften kommen asynchron, mit Meldung
+        self.assertEqual(len(changes), 1)
         track = player.current_track()
         self.assertEqual(track.title, "Last Christmas - Remastered")
         self.assertEqual(track.url, "spotify:track:4uLU6hMCjMI75M1A2tKUQC")
         fake.set_track(2)
         self.assertTrue(run_until(lambda: changes and changes[-1] and changes[-1].artist == "Mariah Carey"))
         fake.set_track(1)  # Werbung wird ignoriert
-        self.assertTrue(run_until(lambda: len(changes) >= 2))
+        self.assertTrue(run_until(lambda: len(changes) >= 3))  # Laden, Mariah Carey, Werbung
         self.assertIsNone(changes[-1])
         player.close()
 

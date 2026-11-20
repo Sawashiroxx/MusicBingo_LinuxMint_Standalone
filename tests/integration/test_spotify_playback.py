@@ -4,11 +4,13 @@ Läuft gegen einen simulierten Spotify-Player auf einem privaten D-Bus – ohne 
 """
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
 import textwrap
 import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -20,9 +22,17 @@ try:
 except (ImportError, ValueError):  # pragma: no cover
     Gio = None
 if Gio is not None:  # ohne GTK-Bindings übersprungen; ein fehlendes App-Modul soll dagegen fehlschlagen
+    from musik_bingo.domain.models import Song
     from musik_bingo.infrastructure import mpris, spotify
 
 URI = "spotify:track:2FRnf9qhLbvw8fu4IBXx78"  # „Driving Home for Christmas“ (TRACKS[3])
+RELINKED = "spotify:track:" + URI.rsplit(":", 1)[-1][::-1]  # so meldet der Fake im Modus „relinked“
+
+
+def fake_metadata(fake) -> dict:
+    """Metadaten, wie der Fake sie gerade meldet (ohne D-Bus)."""
+    from tests.support.fake_mpris import metadata_variant
+    return metadata_variant(fake.tracks[fake.position]).unpack()
 
 
 @unittest.skipUnless(Gio is not None and shutil.which("dbus-daemon"), "D-Bus/PyGObject nicht verfügbar")
@@ -60,11 +70,12 @@ class SpotifyPlaybackTests(unittest.TestCase):
         self.players.append(player)
         return player
 
-    def check(self, open_mode, timeout_ms=600):
+    def check(self, open_mode, timeout_ms=600, **options):
         fake = self.fake(open_mode)
         result = []
         check = spotify.PlaybackCheck(self.player(), URI, lambda *args: result.append(args),
-                                      timeout_ms=timeout_ms, poll_ms=50)
+                                      timeout_ms=timeout_ms, poll_ms=50, **options)
+        self.addCleanup(check.cancel)
         check.start()
         self.assertTrue(run_until(lambda: result, timeout=10))
         run_until(lambda: False, timeout=0.3)  # keine weiteren Aufrufe nach dem Ergebnis
@@ -131,6 +142,121 @@ class SpotifyPlaybackTests(unittest.TestCase):
         self.assertEqual(result, [])
         self.assertEqual(self.names(fake), ["OpenUri"])
         self.assertTrue(check.finished)
+
+    # -- Langsames Spotify, „Relinking“ und späte Bestätigung
+
+    def watch(self, fake, song=None, timeout_ms=400, late_ms=5000):
+        result = []
+        check = spotify.PlaybackCheck(self.player(), URI, lambda *args: result.append(args), timeout_ms=timeout_ms,
+                                      poll_ms=50, song=song, late_ms=late_ms)
+        self.addCleanup(check.cancel)
+        check.start()
+        return check, result
+
+    def test_fake_reports_spotify_web_url_like_real_spotify(self):
+        self.fake()
+        metadata = self.player_loaded().metadata()
+        self.assertEqual(metadata["xesam:url"], "https://open.spotify.com/track/4uLU6hMCjMI75M1A2tKUQC")
+        self.assertEqual(mpris.link_from_metadata(metadata), "spotify:track:4uLU6hMCjMI75M1A2tKUQC")
+
+    def test_relinked_track_with_same_title_and_artist_counts_as_playing(self):
+        fake = self.fake("relinked")
+        check, result = self.watch(fake, song=Song("Driving Home for Christmas", "Chris Rea", URI))
+        self.assertTrue(run_until(lambda: result, timeout=5))
+        run_until(lambda: False, timeout=1.0)  # länger als das Zeitfenster: kein zweites OpenUri
+        self.assertEqual(result, [(spotify.PlaybackCheck.PLAYING, "")])
+        self.assertEqual(mpris.link_from_metadata(fake_metadata(fake)), RELINKED)
+        self.assertEqual(self.names(fake), ["OpenUri"])
+
+    def test_relinked_track_with_other_title_is_not_accepted(self):
+        fake = self.fake("relinked")
+        _check, result = self.watch(fake, song=Song("Last Christmas", "Wham!", URI), late_ms=0)
+        self.assertTrue(run_until(lambda: result, timeout=5))
+        self.assertEqual(result, [(spotify.PlaybackCheck.FAILED, "")])
+
+    def test_slow_start_after_warning_is_reported_late(self):
+        fake = self.fake("delayed")
+        fake.start_delay_s = 1.5
+        check, result = self.watch(fake)
+        self.assertTrue(run_until(lambda: result, timeout=5))
+        self.assertEqual(result, [(spotify.PlaybackCheck.FAILED, "")])  # Warnung nach der Prüfzeit …
+        self.assertTrue(run_until(lambda: len(result) == 2, timeout=5))
+        self.assertEqual(result[1], (spotify.PlaybackCheck.LATE_PLAYING, ""))  # … und Entwarnung, sobald er läuft
+        self.assertTrue(check.finished)
+        self.assertEqual(self.names(fake).count("OpenUri"), 1)
+        self.assertEqual(fake.load_starts, 1)
+
+    def test_changed_but_still_loading_title_is_not_opened_again(self):
+        fake = self.fake("delayed")
+        fake.start_delay_s = 1.5
+        fake.loading_track = {"mpris:trackid": "/com/spotify/track/0000000000000000000000", "xesam:title": "Lädt …",
+                              "xesam:artist": ["Spotify"]}
+        _check, result = self.watch(fake)
+        self.assertTrue(run_until(lambda: len(result) == 2, timeout=8))
+        self.assertEqual([item[0] for item in result],
+                         [spotify.PlaybackCheck.FAILED, spotify.PlaybackCheck.LATE_PLAYING])
+        self.assertEqual(self.names(fake).count("OpenUri"), 1)  # kein Neustart des ladenden Titels
+        self.assertEqual(fake.load_starts, 1)
+
+    def test_late_watch_ends_quietly(self):
+        fake = self.fake("ignore")
+        check, result = self.watch(fake, timeout_ms=200, late_ms=1200)
+        self.assertTrue(run_until(lambda: check.finished, timeout=5))
+        run_until(lambda: False, timeout=0.3)
+        self.assertEqual(result, [(spotify.PlaybackCheck.FAILED, "")])
+        self.assertEqual(self.names(fake), ["OpenUri", "OpenUri"])
+
+    def test_late_watch_stops_on_cancel(self):
+        fake = self.fake("delayed")
+        fake.start_delay_s = 1.2
+        check, result = self.watch(fake, timeout_ms=200)
+        self.assertTrue(run_until(lambda: result, timeout=5))
+        check.cancel()
+        run_until(lambda: False, timeout=1.5)
+        self.assertEqual(result, [(spotify.PlaybackCheck.FAILED, "")])
+
+    # -- Hängendes Spotify (besitzt den Busnamen, antwortet aber nie)
+
+    def hung_player(self):
+        process = subprocess.Popen([sys.executable, str(ROOT / "tests" / "support" / "hung_player_process.py")],
+                                   stdout=subprocess.PIPE, text=True,
+                                   env=dict(os.environ, DBUS_SESSION_BUS_ADDRESS=self.address))
+        self.addCleanup(process.wait, 5)
+        self.addCleanup(process.kill)
+        self.assertEqual(process.stdout.readline().strip(), "ready")
+        process.stdout.close()
+        os.kill(process.pid, signal.SIGSTOP)
+        return process
+
+    def test_hung_player_never_blocks_long(self):
+        self.hung_player()
+        start = time.monotonic()
+        players = mpris.list_players(self.client)
+        self.assertLess(time.monotonic() - start, 2.0)
+        self.assertEqual([p.bus_name for p in players], [spotify.BUS_NAME])
+        self.assertTrue(players[0].is_spotify)
+        start = time.monotonic()
+        player = mpris.MprisPlayer(players[0], self.client)
+        self.players.append(player)
+        self.assertLess(time.monotonic() - start, 1.0)
+        result = []
+        spotify.PlaybackCheck(player, URI, lambda *args: result.append(args), timeout_ms=600, poll_ms=50).start()
+        self.assertTrue(run_until(lambda: result, timeout=6))
+        self.assertEqual(result, [(spotify.PlaybackCheck.NO_REPLY, mpris.NOT_RESPONDING)])
+
+    def test_self_test_reports_hung_player(self):
+        self.hung_player()
+        player = mpris.MprisPlayer(mpris.list_players(self.client)[0], self.client)
+        self.players.append(player)
+        outcome = []
+        spotify.SelfTest(player, URI, outcome.append, check_timeout_ms=600, poll_ms=50).start()
+        self.assertTrue(run_until(lambda: outcome, timeout=6))
+        self.assertEqual((outcome[0].responding, outcome[0].can_control, outcome[0].started), (False, False, False))
+
+    def player_loaded(self):
+        player = self.player()
+        self.assertTrue(run_until(lambda: player.loaded, timeout=3))
+        return player
 
     def test_name_waiter_sees_late_player(self):
         result = []
