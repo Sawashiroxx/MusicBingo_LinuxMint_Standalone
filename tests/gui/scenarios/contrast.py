@@ -1,8 +1,10 @@
 """Misst den Kontrast von Tabellen-/Dateilisten-Text in beiden Designs (WCAG ≥ 4,5:1)."""
 import sys
 
-from common import Gdk, GLib, Gtk, check
+from common import Gdk, GLib, Gtk, check, forbid_network
 from musik_bingo.presentation.theme import css_for
+
+forbid_network()
 
 THEME = sys.argv[1]
 provider = Gtk.CssProvider()
