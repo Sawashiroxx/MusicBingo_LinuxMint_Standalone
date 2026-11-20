@@ -1586,13 +1586,19 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             return False
         if self._modal_dialog_open():
             return True  # Rückfrage/Dialog offen: Timer steht, nichts passiert im Hintergrund
+        phase_before = self.timer.phase
         event = self.timer.tick()
         if event == "reveal":
             self._set_revealed(True)
             self._pause_after_timer()
         elif event == "next":
             caller = self.service.game.caller
-            if self.follow_switch.get_active() or len(caller.drawn) < len(caller.pool):
+            more = len(caller.drawn) < len(caller.pool)
+            # Auflösung 0 s: Die Spielzeit endet direkt mit dem nächsten Ziehen. Pausieren, außer der
+            # nächste Song startet ohnehin automatisch (dann übernimmt Spotify bzw. GStreamer den Wechsel).
+            if phase_before == "läuft" and not (more and self.service.auto_play):
+                self._pause_after_timer()
+            if self.follow_switch.get_active() or more:
                 self._draw_next()
             else:
                 self._set_status("Alle Songs gespielt – Timer angehalten.")
@@ -1790,6 +1796,9 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             if self.player and self.player.info.is_spotify:
                 self.player.pause(on_error=lambda m: self._set_status(f"Spotify reagiert nicht: {m}"))
                 self._set_status("Spielzeit abgelaufen – Spotify pausiert.")
+            else:
+                # Titel lief über Webplayer/spotify:-Link – ohne Verbindung kann die App nicht pausieren
+                self._set_status("Spielzeit abgelaufen – Spotify ist nicht verbunden, bitte von Hand pausieren.")
         elif target == "lokal" and self.audio_player and self.audio_player.is_playing \
                 and not self.audio_player.is_paused:
             try:

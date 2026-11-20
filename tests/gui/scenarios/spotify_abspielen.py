@@ -263,6 +263,26 @@ def scenario_pause(w):
           and calls("Pause") == 1)
     w.pause_after_check.set_active(True)
 
+    # Regression (Fable): Auflösung 0 s → es gab kein „reveal“, Spotify spielte den alten Song weiter
+    w.auto_play_check.set_active(False)
+    w.reveal_spin.set_value(0)
+    w._draw_next()
+    w._play_audio(None)
+    check("Titel läuft (Auflösung 0)", wait(lambda: state()["status"] == "Playing", 8))
+    drawn_before, pauses = len(w.service.game.caller.drawn), calls("Pause")
+    check("Auflösung 0: nach Ablauf pausiert und nächster Song gezogen",
+          wait(lambda: len(w.service.game.caller.drawn) == drawn_before + 1, 6)
+          and wait(lambda: calls("Pause") == pauses + 1 and state()["status"] == "Paused", 3))
+    # Mit automatischem Abspielen übernimmt der nächste Titel – kein überflüssiges Pause davor
+    w.auto_play_check.set_active(True)
+    w._draw_next()
+    check("Titel läuft (Autoplay, Auflösung 0)", wait(lambda: "Läuft in Spotify" in status(w), 8))
+    drawn_before, pauses = len(w.service.game.caller.drawn), calls("Pause")
+    check("Auflösung 0 + Autoplay: kein Pause, nächster Titel startet",
+          wait(lambda: len(w.service.game.caller.drawn) == drawn_before + 1, 6) and pump(0.6) is None
+          and calls("Pause") == pauses and wait(lambda: state()["status"] == "Playing", 8))
+    w.reveal_spin.set_value(3)
+
     # Lokale Dateien: GStreamer-Player wird pausiert
     w.target_buttons["lokal"].set_active(True)
     stub = AudioStub()

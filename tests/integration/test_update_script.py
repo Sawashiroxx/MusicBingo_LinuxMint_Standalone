@@ -123,6 +123,59 @@ class UpdateScriptTests(unittest.TestCase):
         self.assertIn("läuft noch", result.stderr)
         self.assertIn("1.0.0", self.installed_version())
 
+    def branch(self):
+        return self.git("rev-parse", "--abbrev-ref", "HEAD", cwd=self.install).stdout.strip()
+
+    def head(self):
+        return self.git("rev-parse", "HEAD", cwd=self.install).stdout.strip()
+
+    def test_unmerged_feature_branch_is_never_downgraded(self):
+        """Regression (Fable): Ein noch nicht gemergter Entwicklungsstand wurde auf main zurückgesetzt."""
+        self.git("checkout", "--quiet", "-b", "feature/neu", cwd=self.install)
+        (self.install / "neu.txt").write_text("neue Funktion\n")
+        self.git("add", "neu.txt", cwd=self.install)
+        self.git("commit", "--quiet", "-m", "neu", cwd=self.install)
+        before = self.head()
+        self.set_version("1.1.0")
+        self.commit_and_push("Version 1.1.0")
+        result = self.run_update()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("noch nicht in 'main' übernommen", result.stderr)
+        self.assertIn("nichts verändert", result.stderr)
+        self.assertEqual((self.branch(), self.head()), ("feature/neu", before))
+        self.assertTrue((self.install / "neu.txt").is_file())
+
+    def test_diverged_local_main_changes_nothing(self):
+        """Regression (Fable): Bei abweichendem lokalem main wurde schon der Zweig gewechselt."""
+        self.git("commit", "--quiet", "--allow-empty", "-m", "lokal", cwd=self.install)  # main weicht ab
+        self.git("checkout", "--quiet", "-b", "alt", "HEAD~1", cwd=self.install)
+        before = self.head()
+        self.set_version("1.1.0")
+        self.commit_and_push("Version 1.1.0")
+        result = self.run_update()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("weicht von GitHub ab", result.stderr)
+        self.assertEqual((self.branch(), self.head()), ("alt", before))
+
+    def test_local_commits_on_main_are_kept(self):
+        self.git("commit", "--quiet", "--allow-empty", "-m", "lokal", cwd=self.install)
+        before = self.head()
+        self.set_version("1.1.0")
+        self.commit_and_push("Version 1.1.0")
+        result = self.run_update()
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("eigene Änderungen", result.stderr)
+        self.assertEqual(self.head(), before)
+
+    def test_new_state_with_same_version_is_reported_as_update(self):
+        """Regression (Fable): gleiche Versionsnummer, neuer Stand → fälschlich „ist aktuell“."""
+        (self.source / "fix.txt").write_text("Fehlerbehebung\n")
+        self.commit_and_push("Fix ohne Versionssprung")
+        result = self.run_update()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Version 1.0.0 → 1.0.0 (neuer Stand)", result.stdout)
+        self.assertTrue((self.install / "fix.txt").is_file())
+
     def test_script_syntax(self):
         subprocess.run(["bash", "-n", str(PROJECT_ROOT / "scripts" / "aktualisieren.sh")], check=True)
 
