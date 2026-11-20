@@ -1,5 +1,10 @@
 # Änderungsprotokoll
 
+## 2.4.2 – November 2026
+
+- Neu: Menüeintrag **Musik Bingo aktualisieren** – Update per Klick ohne Terminal. Bricht ab, wenn die App
+  läuft oder Dateien im Ordner geändert wurden; bei ZIP-Installation öffnet er die Release-Seite.
+
 ## 2.4.1 – November 2026
 
 - Behoben: Tastenkürzel (Leertaste, T, P, Rücktaste) wirkten mit echten Tastendrücken nicht, sobald die

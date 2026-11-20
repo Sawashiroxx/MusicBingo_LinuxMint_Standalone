@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "musik-bingo"
-version = "2.4.1"
+version = "2.4.2"
 description = "Musik-Bingo für private Feiern – native GTK-3-App für Linux Mint, offline, mit Spotify-/YouTube-Anbindung über MPRIS"
 readme = "README.md"
 requires-python = ">=3.10"

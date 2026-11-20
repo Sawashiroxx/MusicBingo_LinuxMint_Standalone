@@ -40,6 +40,16 @@ Oder ohne Menüeintrag: `bash scripts/starten.sh`
 Benötigt (auf Mint vorinstalliert): `python3-gi`, `gir1.2-gtk-3.0`, `python3-gi-cairo` (Druck).
 Optional für lokale Musikdateien: `python3-gst-1.0`.
 
+### Aktualisieren
+
+Im Startmenü **Musik Bingo aktualisieren** anklicken – fertig, kein Terminal nötig. Es lädt die neueste Version von GitHub (nur bei einer Git-Installation) und erneuert die Menüeinträge. Vorher die App schließen; eigene Änderungen im Ordner werden nie überschrieben, der Spielstand bleibt erhalten.
+
+Den Menüeintrag gibt es ab 2.4.2. Einmalig von einer älteren Version aus im Terminal:
+
+```bash
+cd ~/MusicBingo_LinuxMint_Standalone && git checkout main && git pull && bash scripts/install-desktop.sh
+```
+
 ## Ablauf
 
 1. **Songs & Playlist:** Liste importieren oder Zufallsmix erstellen → *Karten erzeugen*
@@ -72,7 +82,7 @@ Spätestens nach dem letzten Song hat jede Karte „Volle Karte“ – es gibt a
 ```text
 musik_bingo/      App (domain · application · infrastructure · presentation)
   data/           Songlisten, Kataloge, Icon
-scripts/          starten.sh, install-desktop.sh
+scripts/          starten.sh, install-desktop.sh, aktualisieren.sh
 tests/            unit · integration · security · gui (E2E unter Xvfb)
 docs/             Architektur, Prüfprotokoll, Screenshots
 ```
