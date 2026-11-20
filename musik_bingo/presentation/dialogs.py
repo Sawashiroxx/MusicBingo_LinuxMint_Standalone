@@ -1,4 +1,4 @@
-"""Dialoge der Oberfläche: Import, Zufallsmix, Abgleich, Bingo-Ergebnis."""
+"""Dialoge der Oberfläche: Import, Zufallsmix, Abgleich, Bingo-Ergebnis, Spotify-Links."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -10,6 +10,8 @@ gi.require_version("Gtk", "3.0")
 from gi.repository import GLib, Gtk, Pango
 
 from musik_bingo.domain.catalog import Catalog, MixResult, random_mix, unique_songs
+from musik_bingo.domain.link_coverage import LinkCoverage, link_coverage
+from musik_bingo.domain.links import is_spotify, parse_user_link
 from musik_bingo.domain.models import BingoCard, Song
 from musik_bingo.domain.playlist import (
     ORDER_ARTIST_TITLE,
@@ -495,3 +497,126 @@ def bingo_result_dialog(parent: Gtk.Window, card: BingoCard, number: int, name: 
     response = dialog.run()
     dialog.destroy()
     return bool(reached) and response == Gtk.ResponseType.OK
+
+
+# ------------------------------------------------------------ Spotify-Links nachtragen
+
+
+LINK_HINT = ("Spotify-Link bekommst du in Spotify per Rechtsklick auf den Titel → Teilen → Songlink kopieren. "
+             "Schneller für viele Songs: Playlist in Spotify abspielen → ‚Vom Player einlesen‘ → "
+             "‚Mit Playlist abgleichen‘.")
+
+
+def coverage_text(coverage: LinkCoverage) -> str:
+    if coverage.complete:
+        return f"✓ Spotify: alle {coverage.total} Songs direkt abspielbar"
+    return f"Spotify: {coverage.spotify} von {coverage.total} Songs direkt abspielbar"
+
+
+def link_status(value: str) -> tuple[str, bool]:
+    """(Anzeigetext, gültig?) für ein Link-Eingabefeld."""
+    try:
+        link = parse_user_link(value)
+    except ValueError as error:
+        return f"⚠ {error}", False
+    if is_spotify(link):
+        return "✓ Spotify-Titel – wird direkt abgespielt", True
+    if link:
+        return "✓ YouTube-Video – für Spotify fehlt noch der Link", True
+    return "Kein Link – Spotify sucht nach Titel und Interpret", True
+
+
+def spotify_links_dialog(parent: Gtk.Window, songs: list[Song], source: str) -> dict[str, str] | None:
+    """Links pro Song einfügen. Rückgabe: geänderte Links (Song.key → Link, "" = entfernen)."""
+    dialog, content, ok = base_dialog(parent, "Spotify-Links", "Übernehmen", 720)
+    coverage = link_coverage(songs)
+    headline = label("", "panel-title", wrap=True)
+    content.pack_start(headline, False, False, 0)
+    content.pack_start(label(LINK_HINT, "muted", wrap=True), False, False, 0)
+    search = Gtk.SearchEntry()
+    search.set_placeholder_text("Song oder Interpret suchen …")
+    content.pack_start(search, False, False, 0)
+    scroller = Gtk.ScrolledWindow()
+    scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+    scroller.set_min_content_height(360)
+    rows = Gtk.ListBox()
+    rows.set_selection_mode(Gtk.SelectionMode.NONE)
+    scroller.add(rows)
+    content.pack_start(scroller, True, True, 0)
+    status = label("", "small", wrap=True)
+    content.pack_start(status, False, False, 0)
+    missing_keys = {song.key for song in coverage.missing_spotify}
+    unique: dict[str, Song] = {}
+    for song in songs:
+        unique.setdefault(song.key, song)
+    # Songs ohne Spotify-Link zuerst, sonst Reihenfolge der Liste
+    ordered = sorted(unique.values(), key=lambda song: song.key not in missing_keys)
+    entries: list[tuple[Gtk.Entry, Song, Gtk.Label]] = []
+
+    def update(*_args) -> None:
+        errors = 0
+        changes = 0
+        spotify = 0
+        for entry, song, hint in entries:
+            text, valid = link_status(entry.get_text())
+            hint.set_text(text)
+            hint_context = hint.get_style_context()
+            for name in ("ok-text", "warning-text", "muted"):
+                hint_context.remove_class(name)
+            hint_context.add_class("warning-text" if not valid else "ok-text" if text.startswith("✓ Spotify")
+                                   else "muted")
+            if not valid:
+                errors += 1
+                continue
+            link = parse_user_link(entry.get_text())
+            spotify += is_spotify(link)
+            changes += link != song.link
+        text = f"{coverage_text(coverage)} ({source})"
+        if changes and not errors:
+            text += f"\nNach „Übernehmen“: {spotify} von {len(entries)}"
+        headline.set_text(text)
+        parts = [f"{changes} Änderung(en)" if changes else "Noch keine Änderung"]
+        if errors:
+            parts.append(f"{errors} Link(s) ungültig – bitte korrigieren oder leeren")
+        status.set_text(" · ".join(parts))
+        ok.set_sensitive(changes > 0 and not errors)
+
+    for song in ordered:
+        row = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        row.set_margin_top(6)
+        row.set_margin_bottom(6)
+        row.set_margin_end(10)
+        row.pack_start(label(f"<b>{escape(song.display_name)}</b>", markup=True, wrap=True), False, False, 0)
+        entry = Gtk.Entry()
+        entry.set_text(song.link)
+        entry.set_placeholder_text("Songlink hier einfügen (Strg+V)")
+        entry.song_key = song.key
+        row.pack_start(entry, False, False, 0)
+        hint = label("", "small", wrap=True)
+        row.pack_start(hint, False, False, 0)
+        entry.connect("changed", update)
+        rows.add(row)
+        entries.append((entry, song, hint))
+
+    def visible(row) -> bool:
+        text = search.get_text().strip().casefold()
+        return not text or text in entries[row.get_index()][1].display_name.casefold()
+
+    rows.set_filter_func(visible)
+    search.connect("search-changed", lambda *_: rows.invalidate_filter())
+    update()
+    dialog.set_default_size(720, 640)
+    dialog.show_all()
+    if entries:
+        entries[0][0].grab_focus()
+    response = dialog.run()
+    result: dict[str, str] = {}
+    for entry, song, _hint in entries:
+        try:
+            link = parse_user_link(entry.get_text())
+        except ValueError:
+            continue
+        if link != song.link:
+            result[song.key] = link
+    dialog.destroy()
+    return result if response == Gtk.ResponseType.OK and result else None

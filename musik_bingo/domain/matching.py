@@ -102,3 +102,32 @@ def compare_with_playlist(pool: list[Song], playlist: list[Song]) -> tuple[list[
             found.add(song.key)
     missing = [song for song in pool if song.key not in found]
     return missing, extra
+
+
+def links_from_playlist(pool: list[Song], playlist: list[Song]) -> dict[str, str]:
+    """Links aus einer Playlist für Songs des Pools, die noch keinen Link haben.
+
+    Rückgabe: Song.key → Link. Zugeordnet wird wie beim Abgleich (Spotify-ID, Titel + Interpret);
+    vorhandene Links (z. B. YouTube) werden nie überschrieben, unsichere Treffer nie geraten.
+    """
+    matcher = SongMatcher(pool)
+    links: dict[str, str] = {}
+    for item in playlist:
+        link = normalize_link(item.link)
+        if not link:
+            continue
+        song = matcher.find(PlayingTrack(item.title, item.artist, link))
+        if song is not None and not song.link and song.key not in links:
+            links[song.key] = link
+    return links
+
+
+def is_same_song(track: PlayingTrack | None, song: Song | None) -> bool:
+    """Gleicher Song nach der Song-Identität (Titel + Interpret, ohne Groß-/Kleinschreibung).
+
+    Für Spotifys „Relinking“: Dort kann derselbe Titel unter einer anderen Track-ID laufen.
+    Bewusst streng (anders als SongMatcher), damit kein anderer Titel als „läuft“ gilt.
+    """
+    if track is None or song is None or not track.title.strip():
+        return False
+    return Song(track.title.strip(), track.artist.strip()).key == song.key

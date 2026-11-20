@@ -7,9 +7,9 @@ Stand: 19.11.2026 (v2.4.1) · Umgebung: Ubuntu 24.04 (= Basis Linux Mint 22), Py
 | Suite | Tests | Ergebnis |
 |---|---|---|
 | Unit (inkl. Gewinngarantie, Prognose, Abend-Logik, Timer, Beamer-Inhalt, Songliste-Fuzzing, Kartensuche) | 125 | ✅ |
-| Integration (Spotify-/YouTube-Music-Simulation, GStreamer inkl. Netzwerksperre, Druck, Installer, Sicherungen, Release-Bau) | 43 | ✅ |
+| Integration (Spotify-/YouTube-Simulation, GStreamer inkl. Netzwerksperre, Druck, Installer, Sicherungen, Release-Bau) | 43 | ✅ |
 | Sicherheit | 17 | ✅ |
-| GUI/E2E unter Xvfb (Gesamtablauf, Abend-Funktionen, Spotify, YouTube Music, Spotify-Rückfall, echte Tastendrücke, Prüfen ohne Kartennummer, Grenzfälle, Kontrast, Fensterklasse, Screenshots) | 11 | ✅ |
+| GUI/E2E unter Xvfb (Gesamtablauf, Abend-Funktionen, Spotify, YouTube im Browser, Spotify-Rückfall, echte Tastendrücke, Prüfen ohne Kartennummer, Grenzfälle, Kontrast, Fensterklasse, Screenshots) | 11 | ✅ |
 | ruff (Fehler, Bugs, bandit-Sicherheitsregeln), shellcheck | – | ✅ |
 
 ## Gewinngarantie (140 Gäste)
@@ -71,7 +71,7 @@ Tastenkürzel wirkten nicht. Ursache: GTK schaltet bei jedem echten Tastendruck 
 
 1. `bash scripts/install-desktop.sh`, App über das Menü starten
 2. Karten erzeugen → *Drucken / PDF* → eine Seite prüfen
-3. Spotify-Desktop-App bzw. YouTube Music (App oder music.youtube.com) starten, Playlist abspielen → *Player folgen* → Song wird gezogen; *Weiter* springt im Player zum nächsten Titel
+3. Spotify-Desktop-App starten (in Spotify „Autoplay“ aus), Playlist abspielen → *Player folgen* → Song wird gezogen; *Weiter* springt im Player zum nächsten Titel
 4. Einen Song ohne Folgen-Modus mit *Abspielen* in Spotify starten
 5. App schließen und neu öffnen → Stand ist erhalten
 6. Beamer anschließen, *Beamer öffnen* → Fenster erscheint im Vollbild auf dem Beamer, Titel verdeckt, T deckt auf

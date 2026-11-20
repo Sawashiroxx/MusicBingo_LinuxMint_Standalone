@@ -1,4 +1,4 @@
-"""Links auf Spotify- und YouTube-(Music-)Titel erkennen und vereinheitlichen.
+"""Links auf Spotify- und YouTube-Titel erkennen und vereinheitlichen.
 
 Es werden nur zwei Linkarten akzeptiert, damit importierte Listen keine
 beliebigen Adressen in die App tragen:
@@ -51,6 +51,32 @@ def normalize_link(value: str) -> str:
     return ""
 
 
+def parse_user_link(value: str) -> str:
+    """Prüft einen eingefügten Link: vereinheitlichter Link, "" (= Link entfernen) oder ValueError."""
+    if not isinstance(value, str):
+        raise ValueError("Der Link muss Text sein.")
+    value = value.strip()
+    if not value:
+        return ""
+    normalized = normalize_link(value)
+    if normalized:
+        return normalized
+    lowered = value.lower()
+    for kind, name in (("album", "ein Album"), ("playlist", "eine Playlist"), ("artist", "einen Interpreten"),
+                       ("episode", "eine Podcast-Folge"), ("show", "einen Podcast")):
+        if ("spotify.com/" in lowered and f"/{kind}/" in lowered) or lowered.startswith(f"spotify:{kind}:"):
+            return _reject(f"Das ist ein Link auf {name}, nicht auf einen einzelnen Titel. In Spotify per "
+                           "Rechtsklick auf den Titel → Teilen → Songlink kopieren.")
+    if lowered.startswith("spotify:track:") or "open.spotify.com/" in lowered:
+        return _reject("Der Spotify-Link ist unvollständig – bitte den Songlink noch einmal kopieren.")
+    return _reject("Kein gültiger Link. Erlaubt sind Spotify-Titel (open.spotify.com/track/… oder "
+                   "spotify:track:…) und YouTube-Videos.")
+
+
+def _reject(text: str) -> str:
+    raise ValueError(text)
+
+
 def is_spotify(link: str) -> bool:
     return link.startswith("spotify:track:")
 
@@ -75,18 +101,3 @@ def youtube_search_url(title: str, artist: str) -> str:
     return "https://www.youtube.com/results?search_query=" + quote(search_text(title, artist), safe="")
 
 
-def youtube_video_id(link: str) -> str:
-    """Video-ID eines vereinheitlichten YouTube-Links, sonst ""."""
-    return link.rsplit("=", 1)[-1] if is_youtube(link) else ""
-
-
-def youtube_music_url(link: str) -> str:
-    """Derselbe Titel in YouTube Music (gleiche Video-ID)."""
-    video_id = youtube_video_id(link)
-    if not _YOUTUBE_ID.match(video_id):
-        raise ValueError("Kein YouTube-Link")
-    return f"https://music.youtube.com/watch?v={video_id}"
-
-
-def youtube_music_search_url(title: str, artist: str) -> str:
-    return "https://music.youtube.com/search?q=" + quote(search_text(title, artist), safe="")

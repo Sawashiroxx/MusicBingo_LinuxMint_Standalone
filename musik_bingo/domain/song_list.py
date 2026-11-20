@@ -61,25 +61,52 @@ def parse_songs(text: str) -> list[Song]:
     return songs
 
 
+def _hyphens(text: str) -> str:
+    return text.replace("–", "-").replace("—", "-")
+
+
+def _reads_back(text: str, title: str, artist: str) -> bool:
+    parsed = parse_song_line(text)
+    return parsed is not None and (parsed.title, parsed.artist) == (title, artist)
+
+
 def format_song(song: Song) -> str:
-    """Eine Zeile, die parse_song_line wieder genau so einliest."""
+    """Eine Zeile, die parse_song_line wieder als denselben Song einliest.
+
+    Dokumentierte Ersetzungen, wo die Zeile sonst anders gelesen würde: Gedankenstriche (– —) im
+    Interpreten bzw. Titel werden als Bindestrich „-“ geschrieben (z. B. Titel „Wham! –“ mit
+    Interpret), ein führendes „#“ eines Titels wie „# 1“ als „＃“ (sonst Kommentar).
+    """
     title, artist = song.title, song.artist
+    if _COMMENT.match(title):
+        title = title.replace("#", "＃", 1)  # Titel „# 1“ wäre sonst ein Kommentar
     if artist:
         # Der letzte „ – “ trennt den Interpreten ab – im Interpreten selbst darf keiner stehen.
-        artist = _DASH.sub(" - ", artist)
-        text = f"{title} – {artist}"
-        parsed = parse_song_line(text)
-        if parsed is None or (parsed.title, parsed.artist) != (title, artist):
-            # Exotische Gedankenstriche am Rand des Interpreten: als Bindestrich schreiben
-            text = f"{title} – " + artist.replace("–", "-").replace("—", "-")
+        candidates = [(title, _DASH.sub(lambda m: _hyphens(m.group()), artist)), (title, _hyphens(artist)), (_hyphens(title), _hyphens(artist))]
+        lines = [f"{t} – {a}" for t, a in candidates]
     elif _SEPARATOR.search(title) or _TRAILING_DASH.search(title) or title.startswith("#"):
-        text = f"{title} –"  # sonst würde „Stille Nacht - Heilige Nacht“ zerlegt bzw. „#SELFIE“ Kommentar
+        # sonst würde „Stille Nacht - Heilige Nacht“ zerlegt bzw. „#SELFIE“ Kommentar
+        candidates = [(title, ""), (_hyphens(title), "")]
+        lines = [f"{t} –" for t, _a in candidates]
     else:
-        text = title
-    if _COMMENT.match(text):
-        text = text.replace("#", "＃", 1)  # Titel „# 1“ wäre sonst ein Kommentar
+        candidates, lines = [(title, "")], [title]
+    # Erste Schreibweise, die genau zurückgelesen wird; die letzte enthält keine Gedankenstriche mehr
+    text = next((line for line, (t, a) in zip(lines, candidates) if _reads_back(line, t, a)), lines[-1])
     return f"{text} | {song.link}" if song.link else text
 
 
 def format_songs(songs: list[Song]) -> str:
     return "\n".join(format_song(song) for song in songs)
+
+
+def set_links_in_text(text: str, links: dict[str, str]) -> str:
+    """Setzt in der Editor-Liste für die Songs (Schlüssel = Song.key) den Link bzw. entfernt ihn ("").
+
+    Alle anderen Zeilen (Kommentare, Leerzeilen, andere Songs) bleiben unverändert.
+    """
+    lines = text.split("\n")
+    for index, line in enumerate(lines):
+        song = parse_song_line(line)
+        if song is not None and song.key in links:
+            lines[index] = format_song(Song(song.title, song.artist, links[song.key]))
+    return "\n".join(lines)

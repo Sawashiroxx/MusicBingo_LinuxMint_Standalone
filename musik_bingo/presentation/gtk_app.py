@@ -14,6 +14,14 @@ from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 from musik_bingo.application.beamer_state import build_beamer_state
 from musik_bingo.application.game_service import GameService
 from musik_bingo.application.song_timer import SongTimer
+from musik_bingo.application.spotify_check import (
+    NO_REPLY_NOTE,
+    NO_TEST_SONG_NOTE,
+    checklist,
+    count_spotify_links,
+    pick_test_song,
+    report,
+)
 from musik_bingo.domain.catalog import Catalog, parse_catalog
 from musik_bingo.domain.evening import DuplicateWinner, next_stage, next_stage_label, winners_csv
 from musik_bingo.domain.forecast import WIN_TARGET_LABELS, WIN_TARGETS
@@ -24,11 +32,14 @@ from musik_bingo.domain.card_generator import (
     unique_card_capacity,
     winning_cells,
 )
-from musik_bingo.domain.matching import PlayingTrack, SongMatcher, compare_with_playlist
+from musik_bingo.domain.link_coverage import link_coverage
+from musik_bingo.domain.links import is_spotify
+from musik_bingo.domain.matching import PlayingTrack, SongMatcher, compare_with_playlist, links_from_playlist
 from musik_bingo.domain.models import Song
 from musik_bingo.domain.playlist import from_player_tracks, to_csv, to_m3u, to_text
 from musik_bingo.domain.song_list import format_songs, parse_songs
-from musik_bingo.infrastructure import mpris
+from musik_bingo.domain.text import count_text
+from musik_bingo.infrastructure import mpris, spotify
 from musik_bingo.infrastructure.audio_matcher import match_audio_files
 from musik_bingo.infrastructure.audio_player import AudioPlayer
 from musik_bingo.infrastructure.file_store import FileStore
@@ -42,8 +53,8 @@ from musik_bingo.paths import CATALOG_DIR, DEFAULT_SONGS as DEFAULT_SONGS_PATH, 
 
 DEFAULT_SONGS = DEFAULT_SONGS_PATH.read_text(encoding="utf-8")
 PAGES = ("songs", "cards", "game")
-TARGET_LABELS = {"lokal": "Lokale Dateien", "spotify": "Spotify", "youtube": "YouTube", "ytmusic": "YouTube Music"}
-EXTERNAL_TARGETS = ("spotify", "youtube", "ytmusic")
+TARGET_LABELS = {"lokal": "Lokale Dateien", "spotify": "Spotify", "youtube": "YouTube"}
+EXTERNAL_TARGETS = ("spotify", "youtube")
 NAVIGATION_KEYS = (Gdk.KEY_Tab, Gdk.KEY_ISO_Left_Tab, Gdk.KEY_Up, Gdk.KEY_Down, Gdk.KEY_Left, Gdk.KEY_Right)
 
 
@@ -107,6 +118,18 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.unmatched_track: PlayingTrack | None = None
         self.spotify_scheme = has_scheme_handler("spotify")
         self.reader: mpris.PlaylistReader | None = None
+        # Spotify zuverlässig abspielen: Kontrolle nach OpenUri, Autostart, Selbsttest
+        self.playback_check: spotify.PlaybackCheck | None = None
+        self.play_generation = 0  # steigt bei jedem neuen Song: alte Rückmeldungen verfallen
+        self.spotify_waiter: spotify.NameWaiter | None = None
+        self.spotify_waiter_callbacks: list = []
+        self.spotify_start_timeout_ms = spotify.START_TIMEOUT_MS
+        self.playback_check_ms = spotify.CHECK_TIMEOUT_MS
+        self.spotify_self_test: spotify.SelfTest | None = None
+        self.spotify_test_player: mpris.MprisPlayer | None = None
+        self.spotify_test_running = False
+        self.spotify_test_notes: list[str] = []  # Hinweise für den Ergebnisdialog
+        self.warning_kind = ""  # "follow" (Titel nicht auf den Karten) oder "spotify"
         self.forecast_text = ""  # Prognose-Text der aktuellen Runde
         # Abend: Beamer, Aufdecken, Timer, Gewinner-Banner
         self.beamer: BeamerWindow | None = None
@@ -191,9 +214,9 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.stack = Gtk.Stack()
         self.stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
         self.stack.set_transition_duration(160)
-        self.stack.add_named(self._build_songs_page(), "songs")
-        self.stack.add_named(self._build_cards_page(), "cards")
-        self.stack.add_named(self._build_game_page(), "game")
+        self.stack.add_named(self._scrollable(self._build_songs_page()), "songs")
+        self.stack.add_named(self._scrollable(self._build_cards_page()), "cards")
+        self.stack.add_named(self._scrollable(self._build_game_page()), "game")
         body.pack_start(self.stack, True, True, 0)
 
         status_bar = add_class(Gtk.Box(spacing=12), "statusbar")
@@ -203,6 +226,22 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         status_bar.pack_end(label("Leertaste: ziehen · Rücktaste: zurück · T: Titel aufdecken · P: Timer-Pause · F11: Vollbild", "small"), False, False, 0)
         root.pack_end(status_bar, False, False, 0)
         self._apply_theme()
+
+    @staticmethod
+    def _scrollable(page: Gtk.Widget) -> Gtk.Widget:
+        """Seite scrollt bei Bedarf senkrecht, statt die Fensterhöhe zu erzwingen.
+
+        Sonst wäre das Fenster mindestens so hoch wie die längste Seite (~960 px) und ragte auf
+        1366×768-Laptops aus dem Bildschirm. Bei normaler Größe füllt die Seite den Platz wie bisher.
+        """
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        # Natürliche Größe der Seite weitergeben: Aufteilung neben der Seitenleiste bleibt wie bisher
+        scroll.set_propagate_natural_width(True)
+        scroll.set_propagate_natural_height(True)
+        scroll.add(page)  # legt einen Gtk.Viewport an
+        scroll.get_child().set_shadow_type(Gtk.ShadowType.NONE)
+        return scroll
 
     def _build_sidebar(self) -> Gtk.Widget:
         sidebar = add_class(Gtk.Box(orientation=Gtk.Orientation.VERTICAL), "app-sidebar")
@@ -347,6 +386,11 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         song_box.pack_start(song_scroll, True, True, 0)
         self.pool_count_label = label("", "small")
         song_box.pack_start(self.pool_count_label, False, False, 0)
+        self.link_chip = self._button("", self._edit_links, "link-chip",
+                                      tooltip="Spotify-Links ansehen und fehlende nachtragen")
+        self.link_chip.set_halign(Gtk.Align.START)
+        self.link_chip.set_no_show_all(True)
+        song_box.pack_start(self.link_chip, False, False, 0)
 
         right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
         right.set_size_request(340, -1)
@@ -469,7 +513,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         targets = add_class(Gtk.Box(spacing=0), "linked")
         self.target_buttons: dict[str, Gtk.RadioButton] = {}
         group = None
-        for key in ("lokal", "spotify", "youtube", "ytmusic"):
+        for key in ("lokal", "spotify", "youtube"):
             button = Gtk.RadioButton.new_with_label_from_widget(group, TARGET_LABELS[key])
             button.set_mode(False)
             group = group or button
@@ -485,7 +529,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         follow_box.pack_start(self.follow_switch, False, False, 0)
         follow_label = label("Player folgen")
         follow_label.set_tooltip_text(
-            "Die Playlist läuft in Spotify, YouTube oder YouTube Music (gerne im Zufallsmodus). Die App zieht automatisch "
+            "Die Playlist läuft in Spotify oder YouTube (gerne im Zufallsmodus). Die App zieht automatisch "
             "den Song, der gerade läuft, und warnt, wenn er nicht auf den Karten steht."
         )
         follow_box.pack_start(follow_label, False, False, 0)
@@ -515,14 +559,22 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         left.pack_start(self.hero, False, False, 0)
         self.forecast_label = label("", "muted", "small", wrap=True)
         left.pack_start(self.forecast_label, False, False, 0)
+        self.game_link_hint = self._button("", self._edit_links, "link-chip", "link-missing",
+                                           icon="dialog-warning-symbolic",
+                                           tooltip="Songs ohne Spotify-Link werden über die Suche geöffnet. "
+                                                   "Klicken, um Links nachzutragen.")
+        self.game_link_hint.set_halign(Gtk.Align.START)
+        self.game_link_hint.set_no_show_all(True)
+        left.pack_start(self.game_link_hint, False, False, 0)
 
         # Warnung: läuft, steht aber nicht auf den Karten
         self.warning_revealer = Gtk.Revealer()
         warning = add_class(Gtk.Box(spacing=12), "warning-box")
         self.warning_label = label("", wrap=True)
         warning.pack_start(self.warning_label, True, True, 0)
-        warning.pack_end(self._button("Überspringen", self._skip_unmatched, icon="media-skip-forward-symbolic"),
-                         False, False, 0)
+        self.warning_skip_button = self._button("Überspringen", self._skip_unmatched,
+                                                icon="media-skip-forward-symbolic")
+        warning.pack_end(self.warning_skip_button, False, False, 0)
         warning.pack_end(self._button("Ausblenden", lambda *_: self._hide_warning(), "flat"), False, False, 0)
         self.warning_revealer.add(warning)
         left.pack_start(self.warning_revealer, False, False, 0)
@@ -585,9 +637,23 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         play_row.pack_end(self.audio_assign_button, False, False, 0)
         play_row.pack_end(self.shuffle_button, False, False, 0)
         play_panel.pack_start(play_row, False, False, 0)
+        options_row = Gtk.Box(spacing=16)
         self.auto_play_check = Gtk.CheckButton(label="Beim Ziehen automatisch abspielen")
         self.auto_play_check.connect("toggled", self._autoplay_changed)
-        play_panel.pack_start(self.auto_play_check, False, False, 0)
+        options_row.pack_start(self.auto_play_check, False, False, 0)
+        self.pause_after_check = Gtk.CheckButton(label="Nach Ablauf pausieren")
+        self.pause_after_check.set_active(True)
+        self.pause_after_check.set_tooltip_text(
+            "Läuft die Spielzeit des Song-Timers ab, wird die Musik angehalten (Spotify oder lokale Datei) – "
+            "sonst spielt Spotify während der Auflösung weiter.")
+        self.pause_after_check.connect("toggled", self._pause_after_changed)
+        options_row.pack_start(self.pause_after_check, False, False, 0)
+        self.spotify_test_button = self._button(
+            "Spotify testen", self._spotify_test, "flat", icon="emblem-system-symbolic",
+            tooltip="Startet Spotify bei Bedarf, spielt einen Song der Runde kurz an, pausiert ihn wieder "
+                    "und zeigt eine Prüfliste. Zieht keinen Song.")
+        options_row.pack_end(self.spotify_test_button, False, False, 0)
+        play_panel.pack_start(options_row, False, False, 0)
         self.audio_status = label("", "muted", "small", wrap=True)
         play_panel.pack_start(self.audio_status, False, False, 0)
         left.pack_start(play_panel, False, False, 0)
@@ -655,6 +721,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             self.count_spin.set_value(service.card_count)
             self.page_combo.set_active(1 if service.per_page == 1 else 0)
             self.auto_play_check.set_active(service.auto_play)
+            self.pause_after_check.set_active(service.pause_after_timer)
             self.target_buttons[service.playback_target].set_active(True)
             self.win_buttons[service.win_target].set_active(True)
             self.title_entry.set_text(service.event_title)
@@ -838,13 +905,19 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             return
         result, _mode = outcome
         missing, extra = compare_with_playlist(songs, result.songs)
+        # Links der Playlist (z. B. Spotify-Track-Links) auf vorhandene Songs ohne Link übertragen –
+        # Karten und Ziehung bleiben unverändert.
+        taken = self._apply_links(links_from_playlist(songs, result.songs))
+        link_note = f" {count_text(taken, 'Link', 'Links')} aus der Playlist übernommen." if taken else ""
+        if taken:
+            self._set_status(f"Mit Playlist abgeglichen: {count_text(taken, 'Link', 'Links')} übernommen")
         if not missing and not extra:
             dialogs.message(self, Gtk.MessageType.INFO, "Playlist passt genau",
-                            f"Alle {len(songs)} Songs der {source} sind in der Playlist – und umgekehrt.")
+                            f"Alle {len(songs)} Songs der {source} sind in der Playlist – und umgekehrt.{link_note}")
             return
         dialogs.list_dialog(
             self, "Abgleich mit Playlist",
-            f"Verglichen: {source} ({len(songs)} Songs) mit der Playlist ({len(result.songs)} Songs).",
+            f"Verglichen: {source} ({len(songs)} Songs) mit der Playlist ({len(result.songs)} Songs).{link_note}",
             [("Auf den Karten, aber nicht in der Playlist – wird nie gespielt", [s.display_name for s in missing]),
              ("In der Playlist, aber nicht auf den Karten – vorher entfernen", [s.display_name for s in extra])],
         )
@@ -859,8 +932,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         if not players:
             dialogs.message(
                 self, Gtk.MessageType.INFO, "Kein Player gefunden",
-                "Starte zuerst Spotify (Desktop-App), die YouTube-Music-App oder spiele die Playlist im Browser ab "
-                "(youtube.com bzw. music.youtube.com). "
+                "Starte zuerst Spotify (Desktop-App) oder spiele die YouTube-Playlist im Browser ab. "
                 "Dann erneut versuchen.")
             return
         dialog, content, _ok = dialogs.base_dialog(self, "Playlist vom Player einlesen", "Einlesen starten", 560)
@@ -918,10 +990,9 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
                 dialogs.message(self, Gtk.MessageType.INFO, "Nichts übernommen",
                                 f"{reason}\n\nBis dahin gelesen: {len(tracks)} Titel." if tracks else reason)
                 return
-            # Spotify und YouTube Music (App oder Browser-Tab mit music.youtube.com) liefern Titel und
-            # Interpret getrennt – nur YouTube-Videos im Browser brauchen das Zerlegen „Interpret - Titel“.
-            clean = (info.is_spotify or info.is_youtube_music_app
-                     or (info.is_browser and self.service.playback_target == "ytmusic"))
+            # Spotify liefert Titel und Interpret getrennt – nur YouTube-Videos im Browser brauchen das
+            # Zerlegen „Interpret - Titel“.
+            clean = info.is_spotify
             cleaned = from_player_tracks(tracks, clean_metadata=clean).songs
             if not cleaned:
                 dialogs.message(self, Gtk.MessageType.WARNING, "Keine Titel eingelesen", reason)
@@ -936,6 +1007,68 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         progress.show_all()
         self.reader = mpris.PlaylistReader(player, on_progress, on_done)
         self.reader.start()
+
+    def _update_link_overview(self) -> None:
+        """Chip „Spotify: x von y Songs direkt abspielbar“ (Songliste) und Hinweis in der Spielleitung."""
+        if not hasattr(self, "link_chip") or not hasattr(self, "song_buffer"):
+            return
+        songs, source = self._active_or_draft_songs()
+        coverage = link_coverage(songs)
+        self.link_chip.set_label(dialogs.coverage_text(coverage) + " …")
+        self.link_chip.set_tooltip_text(f"Bezieht sich auf die {source}. Klicken, um Spotify-Links "
+                                        "anzusehen und fehlende nachzutragen.")
+        context = self.link_chip.get_style_context()
+        context.remove_class("link-ok")
+        context.remove_class("link-missing")
+        context.add_class("link-ok" if coverage.complete else "link-missing")
+        self.link_chip.set_visible(coverage.total > 0)
+        self.link_chip.show_all()
+        if hasattr(self, "game_link_hint"):
+            game_coverage = link_coverage(self.service.game.songs)
+            show = (self.service.playback_target == "spotify" and game_coverage.total > 0
+                    and not game_coverage.complete)
+            self.game_link_hint.set_label(dialogs.coverage_text(game_coverage) + " – Links ergänzen …")
+            self.game_link_hint.set_visible(show)
+            if show:
+                self.game_link_hint.show_all()
+
+    def _apply_links(self, links: dict[str, str]) -> int:
+        """Links über den GameService setzen (Songliste, Runde, Karten, Ziehung) und speichern."""
+        if not links:
+            return 0
+        if not self._loading_state:
+            self.service.song_text = self._song_text()  # noch nicht gespeicherte Editor-Änderungen
+        try:
+            changed = self.service.set_song_links(links)
+        except ValueError as error:
+            dialogs.message(self, Gtk.MessageType.ERROR, "Link nicht übernommen", str(error))
+            return 0
+        if not changed:
+            return 0
+        if self._song_text() != self.service.song_text:
+            self._loading_state = True
+            try:
+                self.song_buffer.set_text(self.service.song_text)
+            finally:
+                self._loading_state = False
+        self._pool_keys = None  # Songpool neu aufbauen (♫-Markierung)
+        self._save()
+        self._update_song_stats()
+        self._render_caller()
+        return changed
+
+    def _edit_links(self, _button=None) -> None:
+        songs, source = self._active_or_draft_songs()
+        if not songs:
+            dialogs.message(self, Gtk.MessageType.INFO, "Keine Songs", "Die Songliste ist leer.")
+            return
+        links = dialogs.spotify_links_dialog(self, songs, source)
+        if not links:
+            return
+        changed = self._apply_links(links)
+        if changed:
+            coverage = link_coverage(self._active_or_draft_songs()[0])
+            self._set_status(f"{count_text(changed, 'Link', 'Links')} gespeichert · {dialogs.coverage_text(coverage)}")
 
     def _match_audio_folder(self, _button) -> None:
         dialog = Gtk.FileChooserDialog(title="Ordner mit Audiodateien auswählen", transient_for=self,
@@ -1185,6 +1318,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             else:
                 self.artist_label.set_text("Leertaste oder „Nächsten Song ziehen“ drücken.")
         self._update_source_chip()
+        self._update_link_overview()
         self.progress_label.set_text(f"{count}/{total}")
         self.progress.set_fraction(count / total if total else 0)
         if self.service.game.cards:
@@ -1262,6 +1396,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
 
     def _new_song_started(self) -> None:
         """Nach jedem gezogenen Song: Titel verbergen, Banner weg, Timer neu starten."""
+        self._cancel_playback()
         self.banner = ""
         self._set_revealed(False)
         if self.service.game.caller.current is not None:
@@ -1284,6 +1419,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
     def _undo(self, _button=None) -> None:
         if self.audio_player:
             self.audio_player.stop()
+        self._cancel_playback()
         if self.service.game.caller.undo():
             self.timer.stop()
             self.banner = ""
@@ -1475,12 +1611,19 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             return False
         if self._modal_dialog_open():
             return True  # Rückfrage/Dialog offen: Timer steht, nichts passiert im Hintergrund
+        phase_before = self.timer.phase
         event = self.timer.tick()
         if event == "reveal":
             self._set_revealed(True)
+            self._pause_after_timer()
         elif event == "next":
             caller = self.service.game.caller
-            if self.follow_switch.get_active() or len(caller.drawn) < len(caller.pool):
+            more = len(caller.drawn) < len(caller.pool)
+            # Auflösung 0 s: Die Spielzeit endet direkt mit dem nächsten Ziehen. Pausieren, außer der
+            # nächste Song startet ohnehin automatisch (dann übernimmt Spotify bzw. GStreamer den Wechsel).
+            if phase_before == "läuft" and not (more and self.service.auto_play):
+                self._pause_after_timer()
+            if self.follow_switch.get_active() or more:
                 self._draw_next()
             else:
                 self._set_status("Alle Songs gespielt – Timer angehalten.")
@@ -1582,6 +1725,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             return
         if self.audio_player:
             self.audio_player.stop()
+        self._cancel_playback()
         self.service.set_playback_target(key)
         if self.player and not self.follow_switch.get_active() and not self._player_fits_target(self.player.info):
             self._disconnect_player()
@@ -1626,6 +1770,8 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             self.audio_assign_button.set_sensitive(song is not None)
             self.audio_assign_button.set_label("Datei ersetzen …" if path_text else "Datei zuordnen …")
             self.auto_play_check.set_sensitive(available and bool(caller.pool))
+            self.pause_after_check.set_sensitive(True)
+            self.spotify_test_button.set_visible(False)
         else:
             name = TARGET_LABELS[target]
             if self.player:
@@ -1635,10 +1781,6 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             elif target == "spotify":
                 detail = ("Spotify-Desktop-App nicht gestartet – Titel werden über "
                           + ("die Spotify-App geöffnet." if self.spotify_scheme else "den Spotify-Webplayer im Browser geöffnet."))
-            elif target == "ytmusic":
-                # Ohne „Player folgen“ wird kein Player angesteuert – also nichts über erkannte Player behaupten.
-                detail = ("„Abspielen“ öffnet den Titel auf music.youtube.com im Standardbrowser (dort mit Premium "
-                          "anmelden). Für automatisches Mitziehen „Player folgen“ einschalten.")
             else:
                 detail = ("„Abspielen“ öffnet das Video im Standardbrowser. Für automatisches Mitziehen "
                           "„Player folgen“ einschalten.")
@@ -1651,6 +1793,9 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             self.audio_stop_button.set_sensitive(self.player is not None)
             self.audio_assign_button.set_visible(False)
             self.auto_play_check.set_sensitive(not follow and bool(caller.pool))
+            self.pause_after_check.set_sensitive(target == "spotify" and not follow)
+            self.spotify_test_button.set_visible(target == "spotify")
+            self.spotify_test_button.set_sensitive(not follow and not self.spotify_test_running)
         self.audio_status.set_text(status_text or detail)
         self._update_summary()
 
@@ -1659,6 +1804,34 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             return
         self.service.auto_play = self.auto_play_check.get_active()
         self._save()
+
+    def _pause_after_changed(self, _button) -> None:
+        if self._loading_state:
+            return
+        self.service.pause_after_timer = self.pause_after_check.get_active()
+        self._save()
+
+    def _pause_after_timer(self) -> None:
+        """Spielzeit abgelaufen (Übergang zur Auflösung): Musik anhalten – nicht im Folgen-Modus, nicht bei YouTube."""
+        if not self.service.pause_after_timer or self.follow_switch.get_active():
+            return
+        target = self.service.playback_target
+        if target == "spotify":
+            self._cancel_playback()  # sonst könnte die Kontrolle danach noch „Play“ senden
+            if self.player and self.player.info.is_spotify:
+                self.player.pause(on_error=lambda m: self._set_status(f"Spotify reagiert nicht: {m}"))
+                self._set_status("Spielzeit abgelaufen – Spotify pausiert.")
+            else:
+                # Titel lief über Webplayer/spotify:-Link – ohne Verbindung kann die App nicht pausieren
+                self._set_status("Spielzeit abgelaufen – Spotify ist nicht verbunden, bitte von Hand pausieren.")
+        elif target == "lokal" and self.audio_player and self.audio_player.is_playing \
+                and not self.audio_player.is_paused:
+            try:
+                self.audio_player.pause()
+            except RuntimeError as error:
+                self._audio_failed(str(error))
+                return
+            self._update_audio_controls("Spielzeit abgelaufen – Wiedergabe pausiert.")
 
     def _play_audio(self, _button, automatic: bool = False) -> None:
         song = self.service.game.caller.current
@@ -1677,32 +1850,222 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
                 return
             self._update_audio_controls(f"Wiedergabe: {Path(path_text).name}")
             return
+        self._cancel_playback_check()
         if target == "spotify" and self.player is None:
             self._connect_player(quiet=True)
         spotify_mpris = bool(self.player and self.player.info.is_spotify)
+        if target == "spotify" and not spotify_mpris and is_spotify(song.link):
+            # Spotify läuft nicht: Desktop-App starten und auf sie warten, statt nur den Link abzugeben.
+            generation = self.play_generation
+            if self._ensure_spotify(lambda found: self._spotify_ready_for(found, song, generation)):
+                text = f"Spotify wird gestartet … ({song.display_name})"
+                self._set_status(text)
+                self._update_audio_controls(text)
+                return
         plan = plan_launch(song, target, spotify_mpris, self.spotify_scheme)
 
-        def fallback(message: str) -> None:
-            # Spotify-App lehnte OpenUri ab: Titel über das System öffnen – ohne spotify:-Handler im Webplayer.
+        def fallback(message: str, no_reply: bool = False) -> None:
+            # Spotify-App lehnte OpenUri ab oder antwortet nicht: Titel über das System öffnen –
+            # ohne spotify:-Handler im Webplayer.
             try:
                 open_uri(plan_launch(song, "spotify", False, self.spotify_scheme).uri)
             except RuntimeError as error:
                 self._set_status(str(error))
                 return
+            if no_reply:
+                text = f"Spotify reagiert nicht – Titel stattdessen geöffnet: {song.display_name}"
+                self._set_status(text)
+                self._update_audio_controls(text)
+                return
             self._set_status(f"Spotify-Steuerung meldete „{message}“ – Titel stattdessen geöffnet.")
 
         try:
             if plan.method == "mpris" and self.player:
-                self.player.open_uri(plan.uri, on_error=fallback)
+                self._start_playback_check(song, plan.uri, fallback)
             else:
                 open_uri(plan.uri)
         except RuntimeError as error:
             dialogs.message(self, Gtk.MessageType.ERROR, "Konnte nicht geöffnet werden", str(error))
             return
-        self._set_status(f"{plan.description}: {song.display_name}")
+        if plan.method != "mpris":
+            self._set_status(f"{plan.description}: {song.display_name}")
+
+    # ---------------------------------------------------------------- Spotify: Kontrolle & Autostart
+
+    def _start_playback_check(self, song: Song, uri: str, fallback) -> None:
+        """OpenUri senden und asynchron prüfen, ob Spotify genau diesen Titel spielt."""
+        generation = self.play_generation
+
+        def done(result: str, detail: str) -> None:
+            if generation != self.play_generation:
+                return
+            if result == spotify.PlaybackCheck.FAILED:
+                # Kontrolle beobachtet weiter (playback_check bleibt, damit ein neuer Song sie abbricht).
+                self._show_spotify_warning(song)
+                return
+            self.playback_check = None
+            if result == spotify.PlaybackCheck.PLAYING:
+                text = f"Läuft in Spotify: {song.display_name}"
+                self._set_status(text)
+                self._update_audio_controls(text)
+            elif result == spotify.PlaybackCheck.LATE_PLAYING:
+                # Spotify war nur langsam: Warnung zurücknehmen.
+                if self.warning_kind == "spotify":
+                    self._hide_warning()
+                text = f"Läuft jetzt in Spotify: {song.display_name}"
+                self._set_status(text)
+                self._update_audio_controls(text)
+            elif result == spotify.PlaybackCheck.NO_REPLY:
+                fallback(detail, no_reply=True)
+            else:
+                fallback(detail)
+        self._set_status(f"Spotify startet den Titel …: {song.display_name}")
+        self.playback_check = spotify.PlaybackCheck(self.player, uri, done, timeout_ms=self.playback_check_ms,
+                                                    song=song)
+        self.playback_check.start()
+
+    def _cancel_playback_check(self) -> None:
+        if self.playback_check is not None:
+            check, self.playback_check = self.playback_check, None
+            check.cancel()
+
+    def _cancel_playback(self) -> None:
+        """Neuer Song (oder Ziel gewechselt): laufende Kontrolle, Start-Aufträge und alte Spotify-Warnung verwerfen."""
+        self.play_generation += 1
+        self._cancel_playback_check()
+        if self.spotify_test_running:
+            self._finish_spotify_test(cancelled=True)
+        if self.warning_kind == "spotify":
+            self._hide_warning()
+
+    def _show_spotify_warning(self, song: Song) -> None:
+        self.unmatched_track = None
+        self.warning_kind = "spotify"
+        self.warning_label.set_markup(
+            "<b>Spotify hat den Titel nicht gestartet – bitte in Spotify prüfen</b>\n"
+            f"{escape(song.display_name)}")
+        self.warning_skip_button.set_visible(False)
+        self.warning_revealer.set_reveal_child(True)
+        self._set_status(f"Spotify hat den Titel nicht gestartet: {song.display_name}")
+
+    def _ensure_spotify(self, callback) -> bool:
+        """Spotify-Desktop-App starten und asynchron auf sie warten.
+
+        ``callback(gefunden)`` kommt, sobald sich Spotify am Bus meldet oder die Wartezeit abläuft.
+        Rückgabe False: keine Spotify-App installiert (oder Start gescheitert) – der Aufrufer fällt zurück.
+        """
+        if self.spotify_waiter is not None and self.spotify_waiter.active:
+            self.spotify_waiter_callbacks.append(callback)
+            return True
+        if not spotify.launch_desktop_app():
+            return False
+        self.spotify_waiter_callbacks = [callback]
+        self.spotify_waiter = spotify.NameWaiter(spotify.BUS_NAME, self.spotify_start_timeout_ms,
+                                                 self._spotify_wait_done)
+        self.spotify_waiter.start()
+        return True
+
+    def _spotify_wait_done(self, appeared: bool) -> None:
+        self.spotify_waiter = None
+        callbacks, self.spotify_waiter_callbacks = self.spotify_waiter_callbacks, []
+        if self.closing:
+            return
+        for callback in callbacks:
+            callback(appeared)
+
+    def _spotify_ready_for(self, appeared: bool, song: Song, generation: int) -> None:
+        if generation != self.play_generation or self.service.game.caller.current != song:
+            return  # inzwischen wurde ein anderer Song gezogen
+        if appeared and self.player is None:
+            self._connect_player(quiet=True)
+        if appeared and self.player and self.player.info.is_spotify:
+            self._play_audio(None, automatic=True)
+            return
+        plan = plan_launch(song, "spotify", False, self.spotify_scheme)
+        try:
+            open_uri(plan.uri)
+        except RuntimeError as error:
+            self._set_status(str(error))
+            return
+        self._set_status(f"Spotify hat sich nicht gemeldet – {plan.description}: {song.display_name}")
+        self._update_audio_controls()
+
+    # ---------------------------------------------------------------- Spotify testen
+
+    def _spotify_test(self, _button=None) -> None:
+        if self.spotify_test_running:
+            return
+        self.spotify_test_running = True
+        self._update_audio_controls("Spotify-Test läuft …")
+        self._set_status("Spotify-Test läuft …")
+        players = mpris.list_players()  # nur einmal abfragen: ein hängender Player kostet jedes Mal Zeit
+        if any(p.is_spotify for p in players):
+            self._spotify_test_found(True, players)
+        elif not self._ensure_spotify(self._spotify_test_found):
+            self._spotify_test_found(False)
+        else:
+            self._update_audio_controls("Spotify-Test: Spotify wird gestartet …")
+
+    def _spotify_test_found(self, found: bool, players: list[mpris.PlayerInfo] | None = None) -> None:
+        if not self.spotify_test_running or self.spotify_self_test is not None:
+            return
+        if found and players is None:
+            players = mpris.list_players()
+        info = mpris.choose_player(players, target="spotify") if found else None
+        if info is None:
+            self._spotify_test_result(found=False)
+            return
+        try:
+            self.spotify_test_player = mpris.MprisPlayer(info)
+        except RuntimeError:
+            self._spotify_test_result(found=False)
+            return
+        songs, _mode = self._active_or_draft_songs()
+        caller = self.service.game.caller
+        song = pick_test_song(caller.current, songs, caller.drawn)
+        self.spotify_test_notes = [NO_TEST_SONG_NOTE] if song is None and caller.drawn else []
+        self.spotify_self_test = spotify.SelfTest(self.spotify_test_player, song.link if song else "",
+                                                  self._spotify_test_done, check_timeout_ms=self.playback_check_ms,
+                                                  song=song)
+        self.spotify_self_test.start()
+
+    def _spotify_test_done(self, outcome: spotify.SelfTestOutcome) -> None:
+        self.spotify_self_test = None
+        if not outcome.responding:
+            self.spotify_test_notes.append(NO_REPLY_NOTE)
+        self._spotify_test_result(True, outcome.can_control, outcome.started, outcome.paused)
+
+    def _finish_spotify_test(self, cancelled: bool = False) -> None:
+        # Wartet der Test noch auf den Spotify-Start, darf er danach nicht mehr loslaufen
+        # (sonst liefe nach einem Neustart des Tests ein zweiter, verwaister Test mit).
+        if self._spotify_test_found in self.spotify_waiter_callbacks:
+            self.spotify_waiter_callbacks.remove(self._spotify_test_found)
+        if self.spotify_self_test is not None:
+            test, self.spotify_self_test = self.spotify_self_test, None
+            test.cancel()
+        if self.spotify_test_player is not None:
+            self.spotify_test_player.close()
+            self.spotify_test_player = None
+        self.spotify_test_running = False
+        if cancelled:
+            self._set_status("Spotify-Test abgebrochen.")
+        self._update_audio_controls()
+
+    def _spotify_test_result(self, found: bool, can_control: bool = False, started: bool = False,
+                             paused: bool = False) -> None:
+        if not self.spotify_test_running:
+            return
+        self._finish_spotify_test()
+        songs, _mode = self._active_or_draft_songs()
+        items = checklist(found, can_control, started, paused, count_spotify_links(songs), len(songs))
+        notes, self.spotify_test_notes = self.spotify_test_notes, []
+        self._set_status("Spotify-Test beendet.")
+        dialogs.message(self, Gtk.MessageType.INFO if all(ok for ok, _ in items) else Gtk.MessageType.WARNING,
+                        "Spotify-Test", report(items, notes))
 
     def _pause_audio(self, _button) -> None:
         if self.service.playback_target != "lokal":
+            self._cancel_playback_check()
             if self.player:
                 self.player.play_pause()
             return
@@ -1720,6 +2083,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
 
     def _stop_audio(self, _button=None) -> None:
         if self.service.playback_target != "lokal":
+            self._cancel_playback_check()
             if self.player:
                 self.player.pause()
             return
@@ -1773,8 +2137,6 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             return info.is_spotify
         if target == "youtube":
             return info.is_browser
-        if target == "ytmusic":
-            return info.is_youtube_music_app or info.is_browser
         return True
 
     def _connect_player(self, quiet: bool) -> bool:
@@ -1787,8 +2149,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         info = mpris.choose_player(players, self.service.player_name, target)
         if info is None:
             if not quiet:
-                what = {"spotify": "Spotify (Desktop-App)", "youtube": "YouTube im Browser",
-                        "ytmusic": "die YouTube-Music-App oder music.youtube.com im Browser"}.get(target, "den Player")
+                what = {"spotify": "Spotify (Desktop-App)", "youtube": "YouTube im Browser"}.get(target, "den Player")
                 dialogs.message(self, Gtk.MessageType.INFO, "Kein passender Player gefunden",
                                 f"Starte {what} und die Playlist, dann erneut einschalten."
                                 + (f"\n\nGefunden wurden: {', '.join(p.identity for p in players)}" if players else ""))
@@ -1808,6 +2169,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         return True
 
     def _disconnect_player(self) -> None:
+        self._cancel_playback_check()
         if self.player_poll:
             GLib.source_remove(self.player_poll)
             self.player_poll = 0
@@ -1870,6 +2232,8 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         song = SongMatcher(caller.pool).find(track)
         if song is None:
             self.unmatched_track = track
+            self.warning_kind = "follow"
+            self.warning_skip_button.set_visible(True)
             self.warning_label.set_markup(
                 f"<b>Läuft im Player, steht aber nicht auf den Karten:</b>\n{escape(track.label)}\n"
                 "<small>Überspringen oder rechts per Doppelklick den passenden Song markieren.</small>")
@@ -1893,6 +2257,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
 
     def _hide_warning(self) -> None:
         self.unmatched_track = None
+        self.warning_kind = ""
         if hasattr(self, "warning_revealer"):
             self.warning_revealer.set_reveal_child(False)
 
@@ -1983,6 +2348,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         context.remove_class("pool-warning")
         context.add_class(style)
         self.pool_count_label.set_text(message)
+        self._update_link_overview()
         self._update_summary()
 
     def _update_summary(self) -> None:
@@ -2027,6 +2393,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.service.per_page = self.print_per_page
         self.service.diagonal_wins = self.diagonal_check.get_active()
         self.service.auto_play = self.auto_play_check.get_active()
+        self.service.pause_after_timer = self.pause_after_check.get_active()
         if hasattr(self, "title_entry"):
             self.service.set_event_title(self.title_entry.get_text())
         self._save()
@@ -2059,6 +2426,10 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             self.song_save_source = 0
         if self.reader:
             self.reader.cancel()
+        if self.spotify_waiter is not None:
+            self.spotify_waiter.cancel()
+        if self.spotify_test_running:
+            self._finish_spotify_test()
         self._save_settings()
         self._disconnect_player()
         if self.audio_player:
@@ -2154,28 +2525,18 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
                 "Vor neuen Karten oder einem Import wird automatisch gesichert: "
                 "~/.local/share/musik-bingo/sicherungen/ (die letzten 10). Wiederherstellen über "
                 "Menü → Spielstand importieren.",
-                "Spotify/YouTube/YouTube Music werden nur über die lokale Player-Schnittstelle (MPRIS) gesteuert oder per "
+                "Spotify/YouTube werden nur über die lokale Player-Schnittstelle (MPRIS) gesteuert oder per "
                 "Klick im Browser geöffnet – wie ein selbst angeklickter Link.",
                 "Chart- und Weihnachtslisten sind fest in der App gespeichert (Stand KW 47/2026).",
             ]),
             ("Bingo = Playlist", [
                 "Weg A: Playlist in Spotify bauen → als CSV exportieren (z. B. Exportify) → „Playlist importieren“.",
-                "Weg B: Playlist in Spotify/YouTube/YouTube Music starten → „Vom Player einlesen“.",
+                "Weg B: Playlist in Spotify/YouTube starten → „Vom Player einlesen“.",
                 "Weg C: Zufallsmix/Liste hier bauen → „Als Playlist exportieren“ (Text) → per TuneMyMusic o. Ä. "
-                "in Spotify/YouTube Music anlegen.",
+                "in Spotify anlegen.",
                 "Vor dem Spiel: „Mit Playlist abgleichen“ zeigt fehlende oder überzählige Titel.",
                 "Im Spiel: „Player folgen“ – die Playlist läuft im Player, die App zieht automatisch mit und "
                 "warnt bei Titeln, die nicht auf den Karten stehen.",
-            ]),
-            ("YouTube Music (Premium)", [
-                "Oben „Wiedergabe über: YouTube Music“ wählen.",
-                "Empfohlen: Playlist in YouTube Music bauen und abspielen – in der YouTube-Music-Desktop-App "
-                "(z. B. th-ch „YouTube Music“, mit Premium angemeldet) oder auf music.youtube.com im Browser.",
-                "Dann „Vom Player einlesen“ → Karten erzeugen → „Player folgen“ einschalten.",
-                "Ohne Folgen: „Abspielen“ öffnet den gezogenen Titel (oder die Suche) auf music.youtube.com "
-                "im Standardbrowser.",
-                "Ob der Browser „nächster Titel“ an YouTube Music weitergibt, hängt vom Browser ab – im Zweifel "
-                "die Desktop-App nehmen.",
             ]),
             ("Tastatur", ["Leertaste: nächster Song", "Rücktaste: Ziehung zurücknehmen",
                           "T: Titel zeigen/verbergen (auch auf dem Beamer)", "P: Song-Timer pausieren/fortsetzen",

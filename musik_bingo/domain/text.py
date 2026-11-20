@@ -85,3 +85,8 @@ def artist_tokens(artist: str) -> set[str]:
                 token = token[: -len(suffix)]
         cleaned.add(token)
     return cleaned
+
+
+def count_text(count: int, singular: str, plural: str) -> str:
+    """„1 Link“, „2 Links“, „0 Links“ – Anzahl mit passender Einzahl/Mehrzahl."""
+    return f"{count} {singular if count == 1 else plural}"

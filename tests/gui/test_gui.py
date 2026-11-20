@@ -40,6 +40,7 @@ class GuiTests(unittest.TestCase):
     def test_bingo_check_without_card_number(self):
         self.scenario("ohne_nummer.py")
 
+    @unittest.skipUnless(shutil.which("xdotool"), "xdotool fehlt – echte Tastendrücke nicht möglich (CI installiert es)")
     def test_shortcuts_with_real_keystrokes(self):
         """Regression: Leertaste/T wirkten mit echten Tastendrücken nicht (nur im Direktaufruf)."""
         self.scenario("tasten.py")
@@ -47,8 +48,20 @@ class GuiTests(unittest.TestCase):
     def test_spotify_open_uri_fallback_uses_web_player(self):
         self.scenario("spotify_fallback.py")
 
-    def test_follow_youtube_music_end_to_end(self):
-        self.scenario("follow_ytmusic.py")
+    def test_spotify_playback_is_checked_started_tested_and_paused(self):
+        """Abspiel-Kontrolle, Spotify-Autostart, „Spotify testen“ und „Nach Ablauf pausieren“.
+
+        haengt: Spotify antwortet nicht – Oberfläche bleibt bedienbar. spaet: Titel startet nach der Prüfzeit.
+        testabbruch: abgebrochener und neu gestarteter Test läuft nur einmal. pause_kontrolle: nach der
+        Pause zum Ende der Spielzeit sendet die Kontrolle kein „Play“ mehr.
+        """
+        for mode in ("pausiert", "ignoriert", "start", "test", "pause", "haengt", "spaet", "testabbruch",
+                     "pause_kontrolle"):
+            with self.subTest(mode=mode):
+                self.scenario("spotify_abspielen.py", mode)
+
+    def test_follow_youtube_in_browser_end_to_end(self):
+        self.scenario("follow_youtube.py")
 
     def test_edge_cases(self):
         for mode in ("broken", "deep", "defaults", "empty", "big"):
@@ -65,6 +78,14 @@ class GuiTests(unittest.TestCase):
         for theme in ("dark", "light"):
             with self.subTest(theme=theme):
                 self.scenario("contrast.py", theme)
+
+    def test_spotify_link_overview(self):
+        """Chip „Spotify: x von y“, Dialog „Spotify-Links“ und Link-Übernahme beim Playlist-Abgleich."""
+        target = Path(os.environ.get("SCREENSHOT_DIR") or tempfile.mkdtemp(prefix="links-"))
+        for theme in ("dark", "light"):
+            with self.subTest(theme=theme):
+                self.scenario("spotify_links.py", theme, str(target))
+        self.assertEqual(len(list(target.glob("links-*.png"))), 6)  # Dialog, Songliste, Spielleitung × 2
 
     def test_screenshots_render_in_both_themes(self):
         target = Path(os.environ.get("SCREENSHOT_DIR") or tempfile.mkdtemp(prefix="screens-"))

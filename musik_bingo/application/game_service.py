@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from musik_bingo.application.song_timer import SongTimer
 
@@ -9,12 +9,15 @@ from musik_bingo.domain.forecast import WIN_TARGETS, Forecast, Guarantee, card_s
 from musik_bingo.domain.evening import (
     DEFAULT_TITLE, MAX_NAME_LENGTH, MAX_WINNERS, Winner, check_new_winner, clean_event_title, clean_text, next_stage,
 )
-from musik_bingo.domain.song_list import format_songs, parse_songs
+from musik_bingo.domain.links import parse_user_link
+from musik_bingo.domain.song_list import format_songs, parse_songs, set_links_in_text
 
 # Obergrenze pro Runde – identisch mit der Prüfung beim Laden, sonst ließe sich ein
 # Spielstand speichern, der beim nächsten Start nicht mehr geladen werden kann.
 MAX_GAME_SONGS = 2000
-PLAYBACK_TARGETS = ("lokal", "spotify", "youtube", "ytmusic")
+PLAYBACK_TARGETS = ("lokal", "spotify", "youtube")
+# Spielstände aus 2.4.x: YouTube Music gibt es nicht mehr → normales YouTube
+LEGACY_TARGETS = {"ytmusic": "youtube"}
 
 
 @dataclass
@@ -40,9 +43,9 @@ class GameService:
         self.diagonal_wins = self.game.diagonal_wins
         self.auto_play = False
         self.audio_files: dict[str, str] = {}
-        # Wo wird ein gezogener Song abgespielt? lokal (GStreamer), spotify, youtube, ytmusic (YouTube Music)
+        # Wo wird ein gezogener Song abgespielt? lokal (GStreamer), spotify oder youtube
         self.playback_target = "lokal"
-        # Folgen-Modus: Der Player (Spotify/YouTube/YouTube Music) spielt die Playlist,
+        # Folgen-Modus: Der Player (Spotify/YouTube) spielt die Playlist,
         # die App zieht automatisch den gerade laufenden Song.
         self.follow_player = False
         self.player_name = ""
@@ -55,6 +58,8 @@ class GameService:
         # Song-Timer (0 = aus) und Auflösungszeit für den Beamer
         self.timer_seconds = 0
         self.reveal_seconds = 5
+        # Läuft die Spielzeit des Song-Timers ab, wird die Wiedergabe pausiert (Spotify/lokal)
+        self.pause_after_timer = True
 
     def set_song_text(self, text: str) -> list[Song]:
         self.song_text = text
@@ -173,6 +178,48 @@ class GameService:
             raise ValueError("Diesen Gewinner gibt es nicht.")
         return self.winners.pop(index)
 
+    def set_song_link(self, key: str, link: str) -> Song:
+        """Setzt (oder entfernt mit "") den Link eines Songs – überall gleich. Gibt den neuen Song zurück."""
+        self.set_song_links({key: link})
+        return next((song for song in self.game.songs if song.key == key), None) or next(
+            song for song in parse_songs(self.song_text) if song.key == key)
+
+    def set_song_links(self, links: dict[str, str]) -> int:
+        """Setzt mehrere Links (Song.key → Link) in Songliste, Runde, Karten und Ziehung.
+
+        Alle Links werden vorher geprüft; bei einem Fehler ändert sich nichts (ValueError).
+        Die Song-Identität (Titel + Interpret) bleibt gleich, Karten und Ziehung damit auch.
+        Rückgabe: Zahl der Songs, deren Link sich geändert hat.
+        """
+        draft = {song.key: song for song in parse_songs(self.song_text)}
+        active = {song.key: song for song in self.game.songs}
+        wanted: dict[str, str] = {}
+        for key, value in links.items():
+            song = active.get(key) or draft.get(key)
+            if song is None:
+                raise ValueError(f"Der Song „{key}“ ist nicht in der Runde oder Songliste.")
+            try:
+                wanted[key] = parse_user_link(value)
+            except ValueError as error:
+                raise ValueError(f"{song.display_name}: {error}") from error
+        changed = {key for key, link in wanted.items()
+                   if (key in active and active[key].link != link) or (key in draft and draft[key].link != link)}
+        if not changed:
+            return 0
+        self.song_text = set_links_in_text(self.song_text, {key: wanted[key] for key in changed if key in draft})
+
+        def update(song: Song) -> Song:
+            return replace(song, link=wanted[song.key]) if song.key in changed else song
+
+        game = self.game
+        game.songs = [update(song) for song in game.songs]
+        for card in game.cards:
+            card.songs = [update(song) for song in card.songs]
+        caller = game.caller
+        caller.pool = [update(song) for song in caller.pool]
+        caller.order = [update(song) for song in caller.order]
+        return len(changed)
+
     def draw_song(self, song: Song) -> bool:
         """Markiert einen bestimmten Song als nächsten gezogenen (Folgen-Modus)."""
         return self.game.caller.draw_song(song)
@@ -231,6 +278,7 @@ class GameService:
                 "round_number": self.round_number,
                 "timer_seconds": self.timer_seconds,
                 "reveal_seconds": self.reveal_seconds,
+                "pause_after_timer": self.pause_after_timer,
             },
             "winners": [winner.to_dict() for winner in self.winners],
             "songs": [song.to_dict() for song in self.game.songs],
@@ -381,6 +429,8 @@ class GameService:
             raise ValueError("Ungültige Autoplay-Einstellung im Spielstand.")
         service.auto_play = prepared_auto_play
         playback_target = settings.get("playback_target", "lokal")
+        if isinstance(playback_target, str):
+            playback_target = LEGACY_TARGETS.get(playback_target, playback_target)
         if playback_target not in PLAYBACK_TARGETS:
             raise ValueError("Ungültiges Wiedergabeziel im Spielstand.")
         service.playback_target = playback_target
@@ -408,6 +458,10 @@ class GameService:
             service.set_timer(settings.get("timer_seconds", 0), settings.get("reveal_seconds", 5))
         except ValueError as error:
             raise ValueError(f"Ungültige Timer-Einstellung im Spielstand: {error}") from error
+        pause_after_timer = settings.get("pause_after_timer", True)
+        if not isinstance(pause_after_timer, bool):
+            raise ValueError("Ungültige Einstellung „Nach Ablauf pausieren“ im Spielstand.")
+        service.pause_after_timer = pause_after_timer
         raw_winners = data.get("winners", [])
         if not isinstance(raw_winners, list) or len(raw_winners) > MAX_WINNERS:
             raise ValueError("Ungültige Gewinnerliste im Spielstand.")

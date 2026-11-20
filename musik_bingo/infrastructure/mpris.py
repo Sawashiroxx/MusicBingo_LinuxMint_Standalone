@@ -26,8 +26,9 @@ MPRIS_PATH = "/org/mpris/MediaPlayer2"
 ROOT_IFACE = "org.mpris.MediaPlayer2"
 PLAYER_IFACE = "org.mpris.MediaPlayer2.Player"
 CALL_TIMEOUT_MS = 1500
-# Desktop-Apps für YouTube Music (z. B. th-ch „YouTube Music“, ytmdesktop)
-YOUTUBE_MUSIC_HINTS = ("youtube", "ytmdesktop", "ytmusic")
+# Höchstens so lange wartet list_players() insgesamt auf die Namen aller Player – auch wenn einer hängt.
+IDENTITY_BUDGET_MS = 1000
+NOT_RESPONDING = "keine Antwort (Zeitüberschreitung)"
 BROWSER_HINTS = ("firefox", "chrom", "brave", "vivaldi", "opera", "edge", "epiphany", "librewolf", "plasma-browser")
 
 
@@ -45,17 +46,19 @@ class PlayerInfo:
         text = f"{self.bus_name} {self.identity}".casefold()
         return any(hint in text for hint in BROWSER_HINTS)
 
-    @property
-    def is_youtube_music_app(self) -> bool:
-        text = f"{self.bus_name} {self.identity}".casefold()
-        return not self.is_browser and any(hint in text for hint in YOUTUBE_MUSIC_HINTS)
-
 
 def session_bus() -> Gio.DBusConnection | None:
     try:
         return Gio.bus_get_sync(Gio.BusType.SESSION, None)
     except GLib.Error:
         return None
+
+
+def error_text(error: GLib.Error) -> str:
+    """Fehlertext eines D-Bus-Aufrufs; eine Zeitüberschreitung (Player hängt) immer als NOT_RESPONDING."""
+    if error.matches(Gio.io_error_quark(), Gio.IOErrorEnum.TIMED_OUT):
+        return NOT_RESPONDING
+    return error.message
 
 
 def _unpack(value):
@@ -76,13 +79,30 @@ def track_from_metadata(metadata: dict | None) -> PlayingTrack | None:
     if not isinstance(artists, (list, tuple)):
         artists = []
     artist = ", ".join(item.strip() for item in artists[:10] if isinstance(item, str) and item.strip())[:300]
-    trackid = metadata.get("mpris:trackid")
-    trackid = trackid[:300] if isinstance(trackid, str) else ""
-    url = metadata.get("xesam:url")
-    url = url[:500] if isinstance(url, str) else ""
-    lowered = f"{trackid} {url}".casefold()
-    if ":ad:" in lowered or "/ad/" in lowered or "/com/spotify/ad" in lowered:
+    if _is_ad(metadata) or not title:
         return None
+    return PlayingTrack(title, artist, link_from_metadata(metadata))
+
+
+def _ids(metadata: dict) -> tuple[str, str]:
+    trackid = metadata.get("mpris:trackid")
+    url = metadata.get("xesam:url")
+    return (trackid[:300] if isinstance(trackid, str) else "", url[:500] if isinstance(url, str) else "")
+
+
+def _is_ad(metadata: dict) -> bool:
+    lowered = " ".join(_ids(metadata)).casefold()
+    return ":ad:" in lowered or "/ad/" in lowered or "/com/spotify/ad" in lowered
+
+
+def link_from_metadata(metadata: dict | None) -> str:
+    """Vereinheitlichter Link des laufenden Eintrags (Spotify-Track oder YouTube-Video), sonst ""."""
+    if not metadata:
+        return ""
+    metadata = {key: _unpack(value) for key, value in metadata.items()}
+    if _is_ad(metadata):
+        return ""
+    trackid, url = _ids(metadata)
     link = normalize_link(url)
     if not link and trackid:
         # Spotify meldet z. B. „/com/spotify/track/<ID>“ oder „spotify:track:<ID>“.
@@ -90,9 +110,7 @@ def track_from_metadata(metadata: dict | None) -> PlayingTrack | None:
             link = normalize_link("spotify:track:" + trackid.rsplit("/", 1)[-1])
         else:
             link = normalize_link(trackid)
-    if not title:
-        return None
-    return PlayingTrack(title, artist, link)
+    return link
 
 
 def track_identity(metadata: dict | None) -> str:
@@ -109,7 +127,13 @@ def track_identity(metadata: dict | None) -> str:
     )
 
 
-def list_players(connection: Gio.DBusConnection | None = None) -> list[PlayerInfo]:
+def list_players(connection: Gio.DBusConnection | None = None,
+                 budget_ms: int = IDENTITY_BUDGET_MS) -> list[PlayerInfo]:
+    """Alle MPRIS-Player am Bus.
+
+    Die Namen („Identity“) werden parallel abgefragt; ein hängender Player hält die Oberfläche höchstens
+    ``budget_ms`` auf und behält dann den aus dem Busnamen abgeleiteten Namen.
+    """
     connection = connection or session_bus()
     if connection is None:
         return []
@@ -121,20 +145,33 @@ def list_players(connection: Gio.DBusConnection | None = None) -> list[PlayerInf
         )
     except GLib.Error:
         return []
-    players = []
-    for name in sorted(reply.unpack()[0]):
-        if not name.startswith(MPRIS_PREFIX):
-            continue
-        identity = name[len(MPRIS_PREFIX):].split(".")[0].capitalize()
-        try:
-            value = connection.call_sync(
+    names = [name for name in sorted(reply.unpack()[0]) if name.startswith(MPRIS_PREFIX)]
+    identities: dict[str, str] = {}
+    pending = set(names)
+    # Eigener Kontext: Die Antworten kommen nur hier an, der GTK-Hauptloop läuft dabei nicht weiter
+    # (keine verschachtelten Ereignisse), und alle Abfragen laufen gleichzeitig statt nacheinander.
+    context = GLib.MainContext.new()
+    context.push_thread_default()
+    try:
+        for name in names:
+            def done(conn, result, name=name):
+                pending.discard(name)
+                try:
+                    identities[name] = str(conn.call_finish(result).unpack()[0])
+                except GLib.Error:
+                    pass
+            connection.call(
                 name, MPRIS_PATH, "org.freedesktop.DBus.Properties", "Get",
                 GLib.Variant("(ss)", (ROOT_IFACE, "Identity")), GLib.VariantType.new("(v)"),
-                Gio.DBusCallFlags.NONE, CALL_TIMEOUT_MS, None,
+                Gio.DBusCallFlags.NONE, budget_ms, None, done,
             )
-            identity = str(value.unpack()[0]) or identity
-        except GLib.Error:
-            pass
+        while pending:  # endet spätestens nach budget_ms: Gio meldet dann eine Zeitüberschreitung
+            context.iteration(True)
+    finally:
+        context.pop_thread_default()
+    players = []
+    for name in names:
+        identity = identities.get(name) or name[len(MPRIS_PREFIX):].split(".")[0].capitalize()
         players.append(PlayerInfo(name, identity))
     return players
 
@@ -145,10 +182,6 @@ def choose_player(players: list[PlayerInfo], preferred: str = "", target: str = 
         candidates = [p for p in players if p.is_spotify]
     elif target == "youtube":
         candidates = [p for p in players if p.is_browser]
-    elif target == "ytmusic":
-        # YouTube-Music-App bevorzugt, sonst ein Browser (music.youtube.com im Tab)
-        candidates = sorted((p for p in players if p.is_youtube_music_app or p.is_browser),
-                            key=lambda p: not p.is_youtube_music_app)
     else:
         candidates = sorted(players, key=lambda p: not p.is_spotify)
     for player in candidates:
@@ -158,7 +191,12 @@ def choose_player(players: list[PlayerInfo], preferred: str = "", target: str = 
 
 
 class MprisPlayer:
-    """Ein verbundener Player. Änderungen kommen über ``on_change`` an."""
+    """Ein verbundener Player. Änderungen kommen über ``on_change`` an.
+
+    Das Verbinden blockiert nie lange, auch wenn der Player hängt: Die Eigenschaften werden nicht beim
+    Anlegen synchron geladen (Gio wartet dafür bis zu 25 s), sondern asynchron mit kurzem Zeitlimit
+    nachgeladen (``loaded``). Bis dahin liefern metadata()/status() leere bzw. Standardwerte.
+    """
 
     def __init__(self, info: PlayerInfo, connection: Gio.DBusConnection | None = None,
                  on_change: Callable[[], None] | None = None):
@@ -167,24 +205,75 @@ class MprisPlayer:
         if self.connection is None:
             raise RuntimeError("Keine D-Bus-Sitzung gefunden.")
         self.on_change = on_change
+        self.listeners: list[Callable[[], None]] = []
+        self.loaded = False
+        self.closed = False
         try:
             self.proxy = Gio.DBusProxy.new_sync(
-                self.connection, Gio.DBusProxyFlags.NONE, None, info.bus_name,
+                self.connection, Gio.DBusProxyFlags.DO_NOT_LOAD_PROPERTIES, None, info.bus_name,
                 MPRIS_PATH, PLAYER_IFACE, None,
             )
         except GLib.Error as error:
             raise RuntimeError(f"Player {info.identity} nicht erreichbar: {error.message}") from error
-        self._signal = self.proxy.connect("g-properties-changed", self._changed)
+        # Ohne geladene Eigenschaften abonniert der Proxy keine Änderungen – das übernehmen wir selbst.
+        self._signal = self.connection.signal_subscribe(
+            self.proxy.get_name_owner() or info.bus_name, "org.freedesktop.DBus.Properties", "PropertiesChanged",
+            MPRIS_PATH, PLAYER_IFACE, Gio.DBusSignalFlags.NONE, self._properties_changed,
+        )
+        self.connection.call(
+            info.bus_name, MPRIS_PATH, "org.freedesktop.DBus.Properties", "GetAll",
+            GLib.Variant("(s)", (PLAYER_IFACE,)), GLib.VariantType.new("(a{sv})"),
+            Gio.DBusCallFlags.NONE, CALL_TIMEOUT_MS, None, self._initial_state,
+        )
+
+    def _initial_state(self, connection, result, _data=None) -> None:
+        try:
+            properties = connection.call_finish(result).get_child_value(0)
+        except GLib.Error:
+            return  # Player antwortet nicht: Befehle melden das selbst über on_error
+        if self.closed:
+            return
+        for index in range(properties.n_children()):
+            entry = properties.get_child_value(index)
+            name = entry.get_child_value(0).get_string()
+            if self.proxy.get_cached_property(name) is None:  # neuere Änderungssignale haben Vorrang
+                self.proxy.set_cached_property(name, entry.get_child_value(1).get_variant())
+        self.loaded = True
+        self._changed()
+
+    def _properties_changed(self, _connection, _sender, _path, _iface, _signal, parameters, *_data) -> None:
+        if self.closed:
+            return
+        changed = parameters.get_child_value(1)
+        for index in range(changed.n_children()):
+            entry = changed.get_child_value(index)
+            self.proxy.set_cached_property(entry.get_child_value(0).get_string(),
+                                           entry.get_child_value(1).get_variant())
+        for name in parameters.get_child_value(2).unpack():
+            self.proxy.set_cached_property(name, None)
+        self._changed()
 
     def _changed(self, *_args) -> None:
         if self.on_change:
             self.on_change()
+        for listener in list(self.listeners):
+            listener()
+
+    def add_listener(self, listener: Callable[[], None]) -> None:
+        """Zusätzlich bei jeder Änderung benachrichtigen (z. B. die Abspiel-Kontrolle)."""
+        self.listeners.append(listener)
+
+    def remove_listener(self, listener: Callable[[], None]) -> None:
+        if listener in self.listeners:
+            self.listeners.remove(listener)
 
     def close(self) -> None:
+        self.closed = True
         if self._signal:
-            self.proxy.disconnect(self._signal)
+            self.connection.signal_unsubscribe(self._signal)
             self._signal = 0
         self.on_change = None
+        self.listeners.clear()
 
     # -- Zustand
     def metadata(self) -> dict:
@@ -212,12 +301,29 @@ class MprisPlayer:
                 value = connection.call_finish(result).unpack()[0]
             except GLib.Error as error:
                 if on_error:
-                    on_error(error.message)
+                    on_error(error_text(error))
                 return
             callback(value if isinstance(value, dict) else {})
         self.connection.call(
             self.info.bus_name, MPRIS_PATH, "org.freedesktop.DBus.Properties", "Get",
             GLib.Variant("(ss)", (PLAYER_IFACE, "Metadata")), GLib.VariantType.new("(v)"),
+            Gio.DBusCallFlags.NONE, CALL_TIMEOUT_MS, None, done,
+        )
+
+    def fetch_state(self, callback: Callable[[dict], None],
+                    on_error: Callable[[str], None] | None = None) -> None:
+        """Alle Player-Eigenschaften (Metadata, PlaybackStatus, CanControl …) asynchron abfragen."""
+        def done(connection, result, _data=None):
+            try:
+                value = connection.call_finish(result).unpack()[0]
+            except GLib.Error as error:
+                if on_error:
+                    on_error(error_text(error))
+                return
+            callback(value if isinstance(value, dict) else {})
+        self.connection.call(
+            self.info.bus_name, MPRIS_PATH, "org.freedesktop.DBus.Properties", "GetAll",
+            GLib.Variant("(s)", (PLAYER_IFACE,)), GLib.VariantType.new("(a{sv})"),
             Gio.DBusCallFlags.NONE, CALL_TIMEOUT_MS, None, done,
         )
 
@@ -234,13 +340,17 @@ class MprisPlayer:
 
     # -- Befehle
     def _call(self, method: str, params: GLib.Variant | None = None,
-              on_error: Callable[[str], None] | None = None) -> None:
+              on_error: Callable[[str], None] | None = None,
+              on_success: Callable[[], None] | None = None) -> None:
         def done(proxy, result, _data=None):
             try:
                 proxy.call_finish(result)
             except GLib.Error as error:
                 if on_error:
-                    on_error(error.message)
+                    on_error(error_text(error))
+                return
+            if on_success:
+                on_success()
         self.proxy.call(method, params, Gio.DBusCallFlags.NONE, CALL_TIMEOUT_MS, None, done)
 
     def play(self, on_error=None) -> None:
@@ -258,8 +368,8 @@ class MprisPlayer:
     def next(self, on_error=None) -> None:
         self._call("Next", None, on_error)
 
-    def open_uri(self, uri: str, on_error=None) -> None:
-        self._call("OpenUri", GLib.Variant("(s)", (uri,)), on_error)
+    def open_uri(self, uri: str, on_error=None, on_success=None) -> None:
+        self._call("OpenUri", GLib.Variant("(s)", (uri,)), on_error, on_success)
 
 
 class PlaylistReader:

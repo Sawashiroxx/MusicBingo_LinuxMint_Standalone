@@ -1,4 +1,4 @@
-"""Gezogenen Song in Spotify, YouTube oder YouTube Music öffnen.
+"""Gezogenen Song in Spotify oder YouTube öffnen.
 
 Die App selbst sendet nichts ins Netz. Sie übergibt nur eine Adresse an die
 Spotify-Desktop-App (lokal über MPRIS oder das spotify:-Schema) bzw. an den
@@ -13,8 +13,6 @@ from musik_bingo.domain.links import (
     is_youtube,
     spotify_search_uri,
     spotify_web_search_url,
-    youtube_music_search_url,
-    youtube_music_url,
     youtube_search_url,
 )
 from musik_bingo.domain.models import Song
@@ -47,11 +45,6 @@ def plan_launch(song: Song, target: str, spotify_mpris: bool, spotify_scheme: bo
             return LaunchPlan("uri", song.link, True, "Video im Browser geöffnet")
         return LaunchPlan("uri", youtube_search_url(song.title, song.artist), False,
                           "YouTube-Suche im Browser geöffnet – bitte das Video anklicken")
-    if target == "ytmusic":
-        if is_youtube(song.link):
-            return LaunchPlan("uri", youtube_music_url(song.link), True, "Titel in YouTube Music geöffnet")
-        return LaunchPlan("uri", youtube_music_search_url(song.title, song.artist), False,
-                          "YouTube-Music-Suche geöffnet – bitte den Titel anklicken")
     raise ValueError("Für dieses Wiedergabeziel gibt es keinen externen Start.")
 
 

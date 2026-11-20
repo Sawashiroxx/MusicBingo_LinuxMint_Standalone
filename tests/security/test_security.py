@@ -32,7 +32,6 @@ ALLOWED_URI_PREFIXES = (
     "spotify:track:", "spotify:search:", "https://open.spotify.com/track/",
     "https://open.spotify.com/search/", "https://www.youtube.com/watch?v=",
     "https://www.youtube.com/results?search_query=",
-    "https://music.youtube.com/watch?v=", "https://music.youtube.com/search?q=",
 )
 
 
@@ -146,7 +145,7 @@ class LinkWhitelistTests(unittest.TestCase):
             title = "".join(rng.choice(alphabet) for _ in range(rng.randint(1, 30)))
             artist = "".join(rng.choice(alphabet) for _ in range(rng.randint(0, 20)))
             song = Song(title, artist)
-            for target in ("spotify", "youtube", "ytmusic"):
+            for target in ("spotify", "youtube"):
                 for mpris_on, scheme in ((True, True), (False, True), (False, False)):
                     uri = plan_launch(song, target, mpris_on, scheme).uri
                     self.assertTrue(uri.startswith(ALLOWED_URI_PREFIXES), uri)

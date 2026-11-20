@@ -64,13 +64,13 @@ Ordner: $PROJEKT_ORDNER"
 fi
 
 ALT="$(version)"
+ALT_STAND="$(git rev-parse HEAD)"
 PROTOKOLL="$(mktemp)"
 trap 'rm -f "$PROTOKOLL"' EXIT
 
+# 1. Nur herunterladen – das ändert am installierten Stand noch nichts
 lade() {
-  git fetch --quiet origin "$ZWEIG" \
-    && git checkout --quiet "$ZWEIG" \
-    && git merge --quiet --ff-only "origin/$ZWEIG"
+  git fetch --quiet origin "$ZWEIG"
 }
 if mit_fenster; then
   ( lade >"$PROTOKOLL" 2>&1; echo $? >"$PROTOKOLL.rc" ) | zenity --progress --pulsate --auto-close \
@@ -87,6 +87,29 @@ if [ "$RC" != "0" ]; then
 $(tail -n 5 "$PROTOKOLL")"
 fi
 
+# 2. Prüfen, ob der neue Stand den installierten nur ergänzt – sonst nichts anfassen
+ist_enthalten() { git merge-base --is-ancestor "$1" "origin/$ZWEIG"; }
+AKTUELLER_ZWEIG="$(git rev-parse --abbrev-ref HEAD)"
+if ! ist_enthalten HEAD; then
+  if [ "$AKTUELLER_ZWEIG" = "$ZWEIG" ]; then
+    fehler "Diese Kopie enthält eigene Änderungen, die es auf GitHub nicht gibt. Update abgebrochen – es wurde nichts verändert."
+  fi
+  fehler "Diese Kopie steht auf dem Entwicklungsstand '$AKTUELLER_ZWEIG', der noch nicht in '$ZWEIG' übernommen ist (Pull Request noch nicht gemergt). Ein Update würde neue Funktionen entfernen – abgebrochen, es wurde nichts verändert."
+fi
+if git rev-parse --verify --quiet "refs/heads/$ZWEIG" >/dev/null && ! ist_enthalten "refs/heads/$ZWEIG"; then
+  fehler "Der lokale Zweig '$ZWEIG' weicht von GitHub ab. Update abgebrochen – es wurde nichts verändert."
+fi
+
+# 3. Übernehmen (nur noch Vorspulen, kann nichts überschreiben)
+if [ "$AKTUELLER_ZWEIG" = "$ZWEIG" ]; then
+  git merge --quiet --ff-only "origin/$ZWEIG" >"$PROTOKOLL" 2>&1
+else
+  git checkout --quiet -B "$ZWEIG" "origin/$ZWEIG" >"$PROTOKOLL" 2>&1 \
+    && git branch --quiet --set-upstream-to="origin/$ZWEIG" "$ZWEIG" >>"$PROTOKOLL" 2>&1
+fi || fehler "Update konnte nicht übernommen werden:
+
+$(tail -n 5 "$PROTOKOLL")"
+
 NEU="$(version)"
 if ! bash "$PROJEKT_ORDNER/scripts/install-desktop.sh" >"$PROTOKOLL" 2>&1; then
   fehler "Die neue Version ist geladen, der Menüeintrag konnte aber nicht erneuert werden:
@@ -94,9 +117,10 @@ if ! bash "$PROJEKT_ORDNER/scripts/install-desktop.sh" >"$PROTOKOLL" 2>&1; then
 $(tail -n 5 "$PROTOKOLL")"
 fi
 
-if [ "$ALT" = "$NEU" ]; then
+if [ "$ALT_STAND" = "$(git rev-parse HEAD)" ]; then
   info "Musik Bingo ist aktuell (Version $NEU)."
 else
+  [ "$ALT" = "$NEU" ] && NEU="$NEU (neuer Stand)"
   info "Musik Bingo wurde aktualisiert: Version $ALT → $NEU.
 
 Dein Spielstand bleibt erhalten. Einfach die App wieder starten."
