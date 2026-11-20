@@ -7,9 +7,9 @@ Stand: 20.11.2026 (v2.5.0) · Umgebung: Ubuntu 24.04 (= Basis Linux Mint 22), Py
 | Suite | Tests | Ergebnis |
 |---|---|---|
 | Unit (Gewinngarantie, Prognose, Abend-Logik, Timer, Songliste-Fuzzing mit 40 000 Zufallsfällen, Kartensuche, Spotify-Links, Spotify-Prüfliste) | 154 | ✅ |
-| Integration (Spotify-/YouTube-Simulation inkl. hängendem, verzögertem und umverknüpftem Spotify, Abspiel-Kontrolle, GStreamer-Netzwerksperre, Druck, Installer, Update-Skript, Sicherungen, Release-Bau) | 77 | ✅ |
+| Integration (Spotify-/YouTube-Simulation inkl. hängendem, verzögertem und umverknüpftem Spotify, Abspiel-Kontrolle, GStreamer-Netzwerksperre, Druck, Installer, Update-Skript, Sicherungen, Release-Bau) | 79 | ✅ |
 | Sicherheit | 17 | ✅ |
-| GUI/E2E unter Xvfb (Gesamtablauf, Abend-Funktionen, Spotify-Abspielen in 10 Varianten, Spotify-Links, YouTube im Browser, echte Tastendrücke, Prüfen ohne Kartennummer, Grenzfälle, Kontrast, Fensterklasse, Mindestgröße 1366×768, Screenshots) | 13 | ✅ |
+| GUI/E2E unter Xvfb (Gesamtablauf, Abend-Funktionen, Spotify-Abspielen in 11 Varianten, Spotify-Links, YouTube im Browser, echte Tastendrücke, Prüfen ohne Kartennummer, Grenzfälle, Kontrast, Fensterklasse, Mindestgröße 1366×768, Screenshots) | 13 | ✅ |
 | ruff (Fehler, Bugs, bandit-Sicherheitsregeln), shellcheck | – | ✅ |
 
 ## Gewinngarantie (140 Gäste)
@@ -83,7 +83,7 @@ Tastenkürzel wirkten nicht. Ursache: GTK schaltet bei jedem echten Tastendruck 
 
 **Test-Audit** (wurden Tests an Fehler angepasst?):
 - Alle 9 geprüften Stellen, an denen Erwartungen geändert wurden, testen das richtige Verhalten. Zwei waren zu schwach und wurden verschärft: Songliste-Fuzzing jetzt auch mit Zufallszeichen und ausdrücklicher Ersetzungsliste; Mindestgröße prüft jetzt auch die Höhe.
-- Mutationstest (absichtlich eingebaute Fehler): 1. Durchgang 25 von 27 erkannt, 2. Durchgang 19 von 24 (+1 gleichwertig). Die nicht erkannten wurden mit neuen Tests abgedeckt, soweit sie echtes Verhalten betreffen.
+- Mutationstest (absichtlich eingebaute Fehler): 1. Durchgang 25 von 27 erkannt, 2. Durchgang 19 von 24 (+1 gleichwertig). Alle nicht erkannten, die echtes Verhalten betreffen, sind jetzt mit Tests abgedeckt – auch die letzten drei (Signal während des Ladens, Schließen der Player-Verbindung, Hinweis im Testdialog ohne Testsong); jeder neue Test schlägt mit der jeweiligen Mutation fehl.
 - Jeder neue Test schlägt mit dem alten Code fehl (geprüft).
 
 Nicht prüfbar ohne echtes Gerät: echtes Spotify (Startzeit, Umverknüpfung, Verhalten bei Hängern), Fenster unter Cinnamon mit Panel, Beamer, Lautsprecher.

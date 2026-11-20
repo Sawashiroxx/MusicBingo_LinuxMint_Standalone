@@ -236,6 +236,35 @@ def scenario_test(w):
     check("nur ein Dialog", len(shown) == 1)
 
 
+def scenario_no_test_song(w):
+    """Mutation M27 (Fable): Runde läuft, aber kein gezogener Song hat einen Spotify-Link →
+    „Spotify testen“ spielt nichts ab (Gäste würden einen ungezogenen Song hören) und SAGT das im Dialog."""
+    from musik_bingo.application.spotify_check import NO_TEST_SONG_NOTE
+
+    shown = []
+    dialogs_module = __import__("musik_bingo.presentation.dialogs", fromlist=["message"])
+    dialogs_module.message = lambda parent, kind, title, detail: shown.append((title, detail))
+    start_fake("spotify")
+    setup_round(w, with_links=len(SONGS) - 2)
+    caller = w.service.game.caller
+    plain = [song for song in w.service.game.songs if not song.link]
+    for song in plain:  # genau die beiden Songs ohne Link zuerst ziehen
+        caller.order.remove(song)
+    caller.order[:0] = plain
+    caller.draw_next()
+    caller.draw_next()
+    w._render_caller()
+    check("nur Songs ohne Link gezogen", all(not song.link for song in caller.drawn))
+    w._spotify_test(None)
+    check("Dialog erscheint", wait(lambda: shown, 20))
+    title, detail = shown[0] if shown else ("", "")
+    check("Dialogtitel", title == "Spotify-Test")
+    check("Hinweis „kein Titel abgespielt“ im Dialog", NO_TEST_SONG_NOTE in detail)
+    check("„Titel gestartet“ nicht als bestanden", "✓ Titel gestartet" not in detail)
+    check("kein Song an Spotify geschickt", calls("OpenUri") == 0)
+    check("Spotify gefunden trotzdem geprüft", "✓ Spotify gefunden" in detail)
+
+
 class AudioStub:
     def __init__(self):
         self.is_playing, self.is_paused, self.paused = True, False, 0
@@ -471,7 +500,7 @@ def scenario_pause_control(w):
     check("nach der Pause kein Play mehr", calls("Play") == 0 and state()["status"] == "Paused")
 
 
-SCENARIOS = {"wiederholt": scenario_retry, "pausiert": scenario_paused, "ignoriert": scenario_ignored, "start": scenario_start,
+SCENARIOS = {"ohne_testsong": scenario_no_test_song, "wiederholt": scenario_retry, "pausiert": scenario_paused, "ignoriert": scenario_ignored, "start": scenario_start,
              "test": scenario_test, "pause": scenario_pause, "haengt": scenario_hung, "spaet": scenario_late,
              "testabbruch": scenario_test_cancelled, "pause_kontrolle": scenario_pause_control}
 

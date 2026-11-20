@@ -9,9 +9,9 @@ from musik_bingo.domain.models import Song
 from musik_bingo.infrastructure.launcher import plan_launch
 
 try:
-    from gi.repository import Gio
+    from gi.repository import Gio, GLib
     from musik_bingo.infrastructure import mpris
-    from tests.support.fake_mpris import TRACKS, FakePlayer, run_until
+    from tests.support.fake_mpris import TRACKS, FakePlayer, metadata_variant, run_until
 except (ImportError, ValueError):  # pragma: no cover
     Gio = None
 
@@ -39,6 +39,48 @@ class MprisTests(unittest.TestCase):
         player = FakePlayer(self.address, name, list(tracks), loop, identity, ad_ms)
         self.fakes.append(player)
         return player
+
+    def test_change_signal_during_loading_wins_over_older_initial_state(self):
+        """Mutation M4 (Fable): Kommt ein Änderungssignal an, BEVOR die Antwort auf das erste GetAll
+        eintrifft, ist das Signal der neuere Stand – die ältere GetAll-Antwort darf es nicht überschreiben."""
+        self.fake()  # meldet beim Laden Track 0 (Last Christmas), Status Playing
+        info = mpris.list_players(self.client)[0]
+        player = mpris.MprisPlayer(info, self.client)
+        try:
+            self.assertFalse(player.loaded)  # GetAll ist unterwegs, die Antwort braucht den Hauptloop
+            newer = GLib.Variant("(sa{sv}as)", ("org.mpris.MediaPlayer2.Player", {
+                "Metadata": metadata_variant(TRACKS[2]), "PlaybackStatus": GLib.Variant("s", "Paused")}, []))
+            player._properties_changed(None, None, None, None, None, newer)  # Signal vor der Antwort
+            self.assertTrue(run_until(lambda: player.loaded))
+            self.assertEqual(player.current_track().title, TRACKS[2]["xesam:title"])
+            self.assertEqual(player.status(), "Paused")
+        finally:
+            player.close()
+
+    def test_close_stops_all_notifications(self):
+        """Mutation M24 (Fable): Nach close() darf keine Meldung mehr ankommen – weder aus späten
+        Antworten auf das erste Laden noch aus Änderungssignalen des Players."""
+        fake = self.fake()
+        info = mpris.list_players(self.client)[0]
+        changes, heard = [], []
+        player = mpris.MprisPlayer(info, self.client, on_change=lambda: changes.append(1))
+        player.add_listener(lambda: heard.append(1))
+        player.close()  # noch bevor die GetAll-Antwort verarbeitet wurde
+        fake.set_track(1)
+        fake.set_status("Paused")
+        run_until(lambda: False, timeout=1.0)  # Hauptloop laufen lassen: Antwort + Signale treffen ein
+        self.assertEqual((changes, heard), ([], []))
+        self.assertFalse(player.loaded)
+        self.assertEqual(player.listeners, [])
+
+        # Gegenprobe: ohne close() kommen dieselben Meldungen an (der Test misst also etwas)
+        open_player = mpris.MprisPlayer(info, self.client, on_change=lambda: changes.append(1))
+        try:
+            self.assertTrue(run_until(lambda: open_player.loaded))
+            fake.set_track(2)
+            self.assertTrue(run_until(lambda: len(changes) >= 2))
+        finally:
+            open_player.close()
 
     def test_lists_and_chooses_players(self):
         self.fake()
