@@ -66,6 +66,14 @@ class GuiTests(unittest.TestCase):
             with self.subTest(theme=theme):
                 self.scenario("contrast.py", theme)
 
+    def test_spotify_link_overview(self):
+        """Chip „Spotify: x von y“, Dialog „Spotify-Links“ und Link-Übernahme beim Playlist-Abgleich."""
+        target = Path(os.environ.get("SCREENSHOT_DIR") or tempfile.mkdtemp(prefix="links-"))
+        for theme in ("dark", "light"):
+            with self.subTest(theme=theme):
+                self.scenario("spotify_links.py", theme, str(target))
+        self.assertEqual(len(list(target.glob("links-*.png"))), 6)  # Dialog, Songliste, Spielleitung × 2
+
     def test_screenshots_render_in_both_themes(self):
         target = Path(os.environ.get("SCREENSHOT_DIR") or tempfile.mkdtemp(prefix="screens-"))
         for theme in ("dark", "light"):

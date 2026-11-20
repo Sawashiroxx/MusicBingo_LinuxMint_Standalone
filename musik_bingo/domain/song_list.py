@@ -83,3 +83,16 @@ def format_song(song: Song) -> str:
 
 def format_songs(songs: list[Song]) -> str:
     return "\n".join(format_song(song) for song in songs)
+
+
+def set_links_in_text(text: str, links: dict[str, str]) -> str:
+    """Setzt in der Editor-Liste für die Songs (Schlüssel = Song.key) den Link bzw. entfernt ihn ("").
+
+    Alle anderen Zeilen (Kommentare, Leerzeilen, andere Songs) bleiben unverändert.
+    """
+    lines = text.split("\n")
+    for index, line in enumerate(lines):
+        song = parse_song_line(line)
+        if song is not None and song.key in links:
+            lines[index] = format_song(Song(song.title, song.artist, links[song.key]))
+    return "\n".join(lines)

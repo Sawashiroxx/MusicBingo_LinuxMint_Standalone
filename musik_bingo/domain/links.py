@@ -51,6 +51,32 @@ def normalize_link(value: str) -> str:
     return ""
 
 
+def parse_user_link(value: str) -> str:
+    """Prüft einen eingefügten Link: vereinheitlichter Link, "" (= Link entfernen) oder ValueError."""
+    if not isinstance(value, str):
+        raise ValueError("Der Link muss Text sein.")
+    value = value.strip()
+    if not value:
+        return ""
+    normalized = normalize_link(value)
+    if normalized:
+        return normalized
+    lowered = value.lower()
+    for kind, name in (("album", "ein Album"), ("playlist", "eine Playlist"), ("artist", "einen Interpreten"),
+                       ("episode", "eine Podcast-Folge"), ("show", "einen Podcast")):
+        if ("spotify.com/" in lowered and f"/{kind}/" in lowered) or lowered.startswith(f"spotify:{kind}:"):
+            return _reject(f"Das ist ein Link auf {name}, nicht auf einen einzelnen Titel. In Spotify per "
+                           "Rechtsklick auf den Titel → Teilen → Songlink kopieren.")
+    if lowered.startswith("spotify:track:") or "open.spotify.com/" in lowered:
+        return _reject("Der Spotify-Link ist unvollständig – bitte den Songlink noch einmal kopieren.")
+    return _reject("Kein gültiger Link. Erlaubt sind Spotify-Titel (open.spotify.com/track/… oder "
+                   "spotify:track:…) und YouTube-Videos.")
+
+
+def _reject(text: str) -> str:
+    raise ValueError(text)
+
+
 def is_spotify(link: str) -> bool:
     return link.startswith("spotify:track:")
 

@@ -20,11 +20,12 @@ musik_bingo/
 |---|---|
 | `domain/models.py` | `Song` (Titel, Interpret, optionaler Link), `BingoCard` |
 | `domain/song_list.py` | Zeilenformat `Titel – Interpret \| Link` lesen/schreiben |
-| `domain/links.py` | Nur `spotify:track:…` und YouTube-Video-Links zulassen, vereinheitlichen |
+| `domain/links.py` | Nur `spotify:track:…` und YouTube-Video-Links zulassen, vereinheitlichen; eingefügte Links mit deutscher Fehlermeldung prüfen (`parse_user_link`) |
+| `domain/link_coverage.py` | Abdeckung einer Songliste: mit Spotify-/YouTube-Link, ohne Link, Songs ohne Spotify-Link |
 | `domain/text.py` | Normalisieren, „(Official Video)“, „Remastered“, „feat.“ entfernen |
 | `domain/catalog.py` | Kataloge lesen, Zufallsmix Charts/Weihnachten |
 | `domain/playlist.py` | Import CSV/M3U/Text/Player, Export Text/CSV/M3U |
-| `domain/matching.py` | Laufenden Titel einem Song zuordnen, Playlist-Abgleich |
+| `domain/matching.py` | Laufenden Titel einem Song zuordnen, Playlist-Abgleich, Links aus der Playlist übernehmen |
 | `domain/card_generator.py` | Karten erzeugen, Gewinnlinien prüfen |
 | `domain/evening.py` | Ablauf des Abends: Stufen/Runden, Gewinner mit Doppel-Schutz, Feiertitel, CSV-Export |
 | `application/song_timer.py` | Song-Timer (Countdown → Auflösung → nächster Song), ohne GTK testbar |
@@ -46,6 +47,7 @@ musik_bingo/
 - **Gewinngarantie:** Steht jeder Kartensong im gespielten Pool, ist spätestens nach dem letzten Song jede Karte voll – es gibt immer einen Gewinner. `guarantee()` prüft das nach dem Erzeugen.
 - **Prognose:** Pro simuliertem Spiel genügt die Ziehposition jedes Songs: Eine Linie ist voll beim Maximum ihrer Felder. 200 Spiele mit 160 Karten dauern < 0,5 s. Tests vergleichen das Ergebnis exakt mit Song-für-Song-Nachspielen.
 - **Song-Identität:** Titel + Interpret (ohne Groß-/Kleinschreibung). Der Link gehört nicht dazu.
+- **Links nachtragen:** `GameService.set_song_links` setzt/entfernt Links per Song-Identität gleichzeitig in Editorliste (`song_text`), Runde, allen Karten und der Ziehung (Pool/Reihenfolge). Karten, Ziehung und Gewinnprüfung bleiben unverändert; ungültige Links → `ValueError`, nichts wird geändert. *Mit Playlist abgleichen* überträgt so Links aus der Playlist auf Songs ohne Link.
 - **Zuordnung (Folgen-Modus):** Spotify-ID → Titel + Interpret → eindeutiger Titel. Mehrdeutiges wird nicht geraten, unbekannte Titel werden nie gezogen, Werbung wird ignoriert.
 - **Abspielen:** Spotify-Link + laufende App → MPRIS `OpenUri`; sonst `spotify:`-Schema → Webplayer/Suche. YouTube → Browser (`youtube.com`).
 - **Player-Wahl (MPRIS):** Spotify → nur Spotify; YouTube → Browser. Ein gespeicherter Player hat Vorrang, wenn er zum Ziel passt.

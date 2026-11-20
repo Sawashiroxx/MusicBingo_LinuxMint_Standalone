@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from musik_bingo.application.song_timer import SongTimer
 
@@ -9,7 +9,8 @@ from musik_bingo.domain.forecast import WIN_TARGETS, Forecast, Guarantee, card_s
 from musik_bingo.domain.evening import (
     DEFAULT_TITLE, MAX_NAME_LENGTH, MAX_WINNERS, Winner, check_new_winner, clean_event_title, clean_text, next_stage,
 )
-from musik_bingo.domain.song_list import format_songs, parse_songs
+from musik_bingo.domain.links import parse_user_link
+from musik_bingo.domain.song_list import format_songs, parse_songs, set_links_in_text
 
 # Obergrenze pro Runde – identisch mit der Prüfung beim Laden, sonst ließe sich ein
 # Spielstand speichern, der beim nächsten Start nicht mehr geladen werden kann.
@@ -174,6 +175,48 @@ class GameService:
         if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < len(self.winners):
             raise ValueError("Diesen Gewinner gibt es nicht.")
         return self.winners.pop(index)
+
+    def set_song_link(self, key: str, link: str) -> Song:
+        """Setzt (oder entfernt mit "") den Link eines Songs – überall gleich. Gibt den neuen Song zurück."""
+        self.set_song_links({key: link})
+        return next((song for song in self.game.songs if song.key == key), None) or next(
+            song for song in parse_songs(self.song_text) if song.key == key)
+
+    def set_song_links(self, links: dict[str, str]) -> int:
+        """Setzt mehrere Links (Song.key → Link) in Songliste, Runde, Karten und Ziehung.
+
+        Alle Links werden vorher geprüft; bei einem Fehler ändert sich nichts (ValueError).
+        Die Song-Identität (Titel + Interpret) bleibt gleich, Karten und Ziehung damit auch.
+        Rückgabe: Zahl der Songs, deren Link sich geändert hat.
+        """
+        draft = {song.key: song for song in parse_songs(self.song_text)}
+        active = {song.key: song for song in self.game.songs}
+        wanted: dict[str, str] = {}
+        for key, value in links.items():
+            song = active.get(key) or draft.get(key)
+            if song is None:
+                raise ValueError(f"Der Song „{key}“ ist nicht in der Runde oder Songliste.")
+            try:
+                wanted[key] = parse_user_link(value)
+            except ValueError as error:
+                raise ValueError(f"{song.display_name}: {error}") from error
+        changed = {key for key, link in wanted.items()
+                   if (key in active and active[key].link != link) or (key in draft and draft[key].link != link)}
+        if not changed:
+            return 0
+        self.song_text = set_links_in_text(self.song_text, {key: wanted[key] for key in changed if key in draft})
+
+        def update(song: Song) -> Song:
+            return replace(song, link=wanted[song.key]) if song.key in changed else song
+
+        game = self.game
+        game.songs = [update(song) for song in game.songs]
+        for card in game.cards:
+            card.songs = [update(song) for song in card.songs]
+        caller = game.caller
+        caller.pool = [update(song) for song in caller.pool]
+        caller.order = [update(song) for song in caller.order]
+        return len(changed)
 
     def draw_song(self, song: Song) -> bool:
         """Markiert einen bestimmten Song als nächsten gezogenen (Folgen-Modus)."""

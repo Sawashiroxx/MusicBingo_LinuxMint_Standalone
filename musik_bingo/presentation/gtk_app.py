@@ -24,7 +24,8 @@ from musik_bingo.domain.card_generator import (
     unique_card_capacity,
     winning_cells,
 )
-from musik_bingo.domain.matching import PlayingTrack, SongMatcher, compare_with_playlist
+from musik_bingo.domain.link_coverage import link_coverage
+from musik_bingo.domain.matching import PlayingTrack, SongMatcher, compare_with_playlist, links_from_playlist
 from musik_bingo.domain.models import Song
 from musik_bingo.domain.playlist import from_player_tracks, to_csv, to_m3u, to_text
 from musik_bingo.domain.song_list import format_songs, parse_songs
@@ -347,6 +348,11 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         song_box.pack_start(song_scroll, True, True, 0)
         self.pool_count_label = label("", "small")
         song_box.pack_start(self.pool_count_label, False, False, 0)
+        self.link_chip = self._button("", self._edit_links, "link-chip",
+                                      tooltip="Spotify-Links ansehen und fehlende nachtragen")
+        self.link_chip.set_halign(Gtk.Align.START)
+        self.link_chip.set_no_show_all(True)
+        song_box.pack_start(self.link_chip, False, False, 0)
 
         right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
         right.set_size_request(340, -1)
@@ -515,6 +521,13 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         left.pack_start(self.hero, False, False, 0)
         self.forecast_label = label("", "muted", "small", wrap=True)
         left.pack_start(self.forecast_label, False, False, 0)
+        self.game_link_hint = self._button("", self._edit_links, "link-chip", "link-missing",
+                                           icon="dialog-warning-symbolic",
+                                           tooltip="Songs ohne Spotify-Link werden über die Suche geöffnet. "
+                                                   "Klicken, um Links nachzutragen.")
+        self.game_link_hint.set_halign(Gtk.Align.START)
+        self.game_link_hint.set_no_show_all(True)
+        left.pack_start(self.game_link_hint, False, False, 0)
 
         # Warnung: läuft, steht aber nicht auf den Karten
         self.warning_revealer = Gtk.Revealer()
@@ -838,13 +851,19 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             return
         result, _mode = outcome
         missing, extra = compare_with_playlist(songs, result.songs)
+        # Links der Playlist (z. B. Spotify-Track-Links) auf vorhandene Songs ohne Link übertragen –
+        # Karten und Ziehung bleiben unverändert.
+        taken = self._apply_links(links_from_playlist(songs, result.songs))
+        link_note = f" {taken} Links aus der Playlist übernommen." if taken else ""
+        if taken:
+            self._set_status(f"Mit Playlist abgeglichen: {taken} Links übernommen")
         if not missing and not extra:
             dialogs.message(self, Gtk.MessageType.INFO, "Playlist passt genau",
-                            f"Alle {len(songs)} Songs der {source} sind in der Playlist – und umgekehrt.")
+                            f"Alle {len(songs)} Songs der {source} sind in der Playlist – und umgekehrt.{link_note}")
             return
         dialogs.list_dialog(
             self, "Abgleich mit Playlist",
-            f"Verglichen: {source} ({len(songs)} Songs) mit der Playlist ({len(result.songs)} Songs).",
+            f"Verglichen: {source} ({len(songs)} Songs) mit der Playlist ({len(result.songs)} Songs).{link_note}",
             [("Auf den Karten, aber nicht in der Playlist – wird nie gespielt", [s.display_name for s in missing]),
              ("In der Playlist, aber nicht auf den Karten – vorher entfernen", [s.display_name for s in extra])],
         )
@@ -934,6 +953,68 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         progress.show_all()
         self.reader = mpris.PlaylistReader(player, on_progress, on_done)
         self.reader.start()
+
+    def _update_link_overview(self) -> None:
+        """Chip „Spotify: x von y Songs direkt abspielbar“ (Songliste) und Hinweis in der Spielleitung."""
+        if not hasattr(self, "link_chip") or not hasattr(self, "song_buffer"):
+            return
+        songs, source = self._active_or_draft_songs()
+        coverage = link_coverage(songs)
+        self.link_chip.set_label(dialogs.coverage_text(coverage) + " …")
+        self.link_chip.set_tooltip_text(f"Bezieht sich auf die {source}. Klicken, um Spotify-Links "
+                                        "anzusehen und fehlende nachzutragen.")
+        context = self.link_chip.get_style_context()
+        context.remove_class("link-ok")
+        context.remove_class("link-missing")
+        context.add_class("link-ok" if coverage.complete else "link-missing")
+        self.link_chip.set_visible(coverage.total > 0)
+        self.link_chip.show_all()
+        if hasattr(self, "game_link_hint"):
+            game_coverage = link_coverage(self.service.game.songs)
+            show = (self.service.playback_target == "spotify" and game_coverage.total > 0
+                    and not game_coverage.complete)
+            self.game_link_hint.set_label(dialogs.coverage_text(game_coverage) + " – Links ergänzen …")
+            self.game_link_hint.set_visible(show)
+            if show:
+                self.game_link_hint.show_all()
+
+    def _apply_links(self, links: dict[str, str]) -> int:
+        """Links über den GameService setzen (Songliste, Runde, Karten, Ziehung) und speichern."""
+        if not links:
+            return 0
+        if not self._loading_state:
+            self.service.song_text = self._song_text()  # noch nicht gespeicherte Editor-Änderungen
+        try:
+            changed = self.service.set_song_links(links)
+        except ValueError as error:
+            dialogs.message(self, Gtk.MessageType.ERROR, "Link nicht übernommen", str(error))
+            return 0
+        if not changed:
+            return 0
+        if self._song_text() != self.service.song_text:
+            self._loading_state = True
+            try:
+                self.song_buffer.set_text(self.service.song_text)
+            finally:
+                self._loading_state = False
+        self._pool_keys = None  # Songpool neu aufbauen (♫-Markierung)
+        self._save()
+        self._update_song_stats()
+        self._render_caller()
+        return changed
+
+    def _edit_links(self, _button=None) -> None:
+        songs, source = self._active_or_draft_songs()
+        if not songs:
+            dialogs.message(self, Gtk.MessageType.INFO, "Keine Songs", "Die Songliste ist leer.")
+            return
+        links = dialogs.spotify_links_dialog(self, songs, source)
+        if not links:
+            return
+        changed = self._apply_links(links)
+        if changed:
+            coverage = link_coverage(self._active_or_draft_songs()[0])
+            self._set_status(f"{changed} Links gespeichert · {dialogs.coverage_text(coverage)}")
 
     def _match_audio_folder(self, _button) -> None:
         dialog = Gtk.FileChooserDialog(title="Ordner mit Audiodateien auswählen", transient_for=self,
@@ -1183,6 +1264,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             else:
                 self.artist_label.set_text("Leertaste oder „Nächsten Song ziehen“ drücken.")
         self._update_source_chip()
+        self._update_link_overview()
         self.progress_label.set_text(f"{count}/{total}")
         self.progress.set_fraction(count / total if total else 0)
         if self.service.game.cards:
@@ -1974,6 +2056,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         context.remove_class("pool-warning")
         context.add_class(style)
         self.pool_count_label.set_text(message)
+        self._update_link_overview()
         self._update_summary()
 
     def _update_summary(self) -> None:

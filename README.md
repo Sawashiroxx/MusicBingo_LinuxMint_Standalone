@@ -68,6 +68,8 @@ Spätestens nach dem letzten Song hat jede Karte „Volle Karte“ – es gibt a
 
 **Tipp für Spotify:** Playlist in Spotify anlegen, mit [Exportify](https://exportify.app) als CSV exportieren, dann *Playlist importieren*. So stehen genau die Playlist-Titel mit Spotify-Links auf den Karten.
 
+**Spotify-Links nachtragen:** Der Knopf „Spotify: 38 von 40 Songs direkt abspielbar …“ unter der Songliste (und als Hinweis in der Spielleitung, wenn Spotify gewählt ist und Links fehlen) öffnet den Dialog *Spotify-Links*: Songs ohne Link stehen oben, pro Song lässt sich ein Songlink einfügen (in Spotify: Rechtsklick auf den Titel → Teilen → Songlink kopieren). Schneller für viele Songs: Playlist in Spotify abspielen → *Vom Player einlesen* → *Mit Playlist abgleichen* – der Abgleich überträgt die Spotify-Links auf vorhandene Songs ohne Link, ohne Karten neu zu erzeugen. Vorhandene Links (z. B. YouTube) werden dabei nicht überschrieben.
+
 
 ## Datenschutz
 
