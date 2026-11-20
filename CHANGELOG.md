@@ -1,5 +1,32 @@
 # Änderungsprotokoll
 
+## 2.5.1 – November 2026
+
+Behoben nach der dritten Gesamtprüfung (Claude Fable 5.2, höchste Stufe):
+
+- **Bedienung am Abend:**
+  - Der Knopf „Nächsten Song ziehen“ springt nicht mehr, wenn ein Titel ein- statt zweizeilig ist. Vorher lag dann „Weiter: 2 Reihen“ unter der Maus.
+  - Eine gehaltene Leertaste, Rücktaste, T oder P löst nur noch einmal aus (vorher bis zu 36 Songs in 2 s). Ein Doppelklick auf „Ziehen“ zieht nur einen Song.
+  - „Bingo prüfen“: Eine Tippfehler-Nummer (leer, zu groß) meldet „Ungültige Kartennummer“ statt still Karte 1 bzw. die letzte Karte zu prüfen.
+  - „Player folgen“ zieht nur Titel, die wirklich laufen, keine pausiert geladenen.
+- **Stabilität und Speichern:**
+  - Eine Audiodatei ohne Leserecht verhindert nicht mehr den Start und hält den Song-Timer nicht mehr an.
+  - Gezogene Songs werden vor dem Neuzeichnen gespeichert.
+  - Schlägt das Speichern fehl (Platte voll, alte Ordnernamen), erscheinen ein Dialog und die Markierung „NICHT GESPEICHERT“.
+  - Ein beschädigter Spielstand mit ungültigen Zeichen führt zu einer Warnung und einer neuen Runde statt zu einem Start ohne Fenster.
+- **Offline-Versprechen:** Präparierte Audiodateien (z. B. QuickTime-Verweise) können keine Netzwerkverbindung mehr auslösen. Die App nutzt nur noch Dateiquellen und spielt nur Ton.
+- **Import:**
+  - CSV-Dateien mit Hochkommas in Titeln („'N Sync“) verlieren keine Zeilen mehr.
+  - Windows-Dateien (cp1252) und Excel-„Unicode-Text“ (UTF-16) werden richtig gelesen.
+  - Die Spalte „Spotify ID“ ergibt jetzt Links.
+- **Anzeige:**
+  - Lange Gewinnernamen oder Feiertitel sprengen die Beamer-Breite nicht mehr.
+  - Der Ergebnisdialog passt auf 1366×768.
+- **Skripte:**
+  - Ein Projektordner mit Backslash im Namen funktioniert im Menüeintrag.
+  - Das Update stört sich nicht an verlorenen Ausführungsrechten (USB-Stick, Cloud-Ordner).
+- **Aufgeräumt:** Die alte HTML-Urversion (`docs/legacy/`) ist entfernt.
+
 ## 2.5 – November 2026
 
 - **Spotify im Mittelpunkt:**

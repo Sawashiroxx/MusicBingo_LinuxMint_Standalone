@@ -27,12 +27,19 @@ def _is_blocked(factory) -> bool:
 
 
 def block_network_elements() -> int:
-    """Netzwerkfähige Elemente aus dem automatischen Zusammenstecken nehmen (nur dieser Prozess)."""
+    """Netzwerkfähige Elemente und alle URI-Quellen außer file:// für diesen Prozess ENTFERNEN.
+
+    Nur den Rang zu senken reicht nicht: Quellen werden über das URI-Schema gewählt, nicht über den Rang.
+    Eine Umleitung in einer präparierten Datei (z. B. QuickTime-Verweisfilm auf http://…) baute sonst
+    trotzdem eine Verbindung auf. Die Registry auf der Platte bleibt unverändert.
+    """
+    registry = Gst.Registry.get()
     count = 0
-    for factory in Gst.Registry.get().get_feature_list(Gst.ElementFactory):
+    for factory in registry.get_feature_list(Gst.ElementFactory):
         klass = factory.get_metadata("klass") or ""
-        if any(part in klass for part in _BLOCKED_KLASS) and factory.get_rank() != Gst.Rank.NONE:
-            factory.set_rank(Gst.Rank.NONE)
+        foreign_source = factory.get_uri_type() == Gst.URIType.SRC and factory.get_name() not in _ALLOWED_SOURCES
+        if foreign_source or any(part in klass for part in _BLOCKED_KLASS):
+            registry.remove_feature(factory)
             count += 1
     return count
 
@@ -59,6 +66,9 @@ class AudioPlayer:
         self.playbin = Gst.ElementFactory.make("playbin", "musik-bingo-player")
         if self.playbin is None:
             raise RuntimeError("GStreamer konnte keinen Audioplayer erstellen.")
+        # Nur Ton: keine Videofenster, keine Untertitel (Dateien mit Videospur öffnen sonst ein Fenster).
+        Gst.util_set_object_arg(self.playbin, "flags", "audio+soft-volume")
+        self.playbin.set_property("video-sink", Gst.ElementFactory.make("fakesink", None))
         if audio_sink is not None:
             self.playbin.set_property("audio-sink", audio_sink)
         # Zweite Sicherung: Taucht trotzdem ein Netzwerk-Element auf, wird sofort abgebrochen.

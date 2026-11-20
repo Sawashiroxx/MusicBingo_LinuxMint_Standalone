@@ -78,7 +78,9 @@ class FileStore:
                 delete=False,
             ) as temporary:
                 temporary_path = Path(temporary.name)
-                json.dump(service.to_dict(), temporary, ensure_ascii=False, indent=2)
+                # ensure_ascii: Dateipfade mit Bytes außerhalb von UTF-8 (alte Latin-1-Ordnernamen) kommen als
+                # Ersatzzeichen an und ließen sich sonst nicht schreiben – danach scheiterte JEDES Speichern.
+                json.dump(service.to_dict(), temporary, ensure_ascii=True, indent=2)
                 temporary.write("\n")
                 temporary.flush()
                 os.fsync(temporary.fileno())

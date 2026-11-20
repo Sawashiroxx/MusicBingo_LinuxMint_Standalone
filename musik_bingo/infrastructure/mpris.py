@@ -334,6 +334,11 @@ class MprisPlayer:
         value = self.proxy.get_cached_property("PlaybackStatus")
         return value.unpack() if value is not None else "Stopped"
 
+    def is_playing(self) -> bool:
+        """Läuft die Wiedergabe? Unbekannt (Player meldet keinen Status oder ist noch nicht geladen) zählt als „ja“."""
+        value = self.proxy.get_cached_property("PlaybackStatus")
+        return value is None or value.unpack() == "Playing"
+
     def can(self, prop: str) -> bool:
         value = self.proxy.get_cached_property(prop)
         return bool(value.unpack()) if value is not None else True

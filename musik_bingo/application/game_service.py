@@ -397,7 +397,8 @@ class GameService:
         song_text = data.get("song_text", format_songs(songs))
         if not isinstance(song_text, str):
             raise ValueError("Die gespeicherte Songliste muss Text sein.")
-        service.song_text = song_text
+        # Ein NUL-Zeichen schneidet den Text im GTK-Editor ab – entfernen, statt die Liste still zu kürzen
+        service.song_text = song_text.replace("\x00", "")
         settings = data.get("settings", {})
         if not isinstance(settings, dict):
             raise ValueError("Ungültige Einstellungen im Spielstand.")
