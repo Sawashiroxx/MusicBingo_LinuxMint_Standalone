@@ -37,6 +37,8 @@ musik_bingo/
 | `infrastructure/audio_*.py` | Audiodateien zuordnen und mit GStreamer abspielen |
 | `infrastructure/mpris.py` | Player auflisten, Metadaten, Steuerung, `OpenUri`, Playlist einlesen |
 | `infrastructure/launcher.py` | Wie ein Song in Spotify oder YouTube geöffnet wird |
+| `infrastructure/spotify.py` | Spotify-App starten (Paket/Snap/Flatpak), auf den Busnamen warten, Abspiel-Kontrolle nach `OpenUri`, Selbsttest |
+| `application/spotify_check.py` | Prüfliste und Testsong für „Spotify testen“ |
 | `presentation/gtk_app.py` | Hauptfenster mit drei Bereichen, Folgen-Modus |
 
 ## Wichtige Regeln
@@ -48,6 +50,9 @@ musik_bingo/
 - **Song-Identität:** Titel + Interpret (ohne Groß-/Kleinschreibung). Der Link gehört nicht dazu.
 - **Zuordnung (Folgen-Modus):** Spotify-ID → Titel + Interpret → eindeutiger Titel. Mehrdeutiges wird nicht geraten, unbekannte Titel werden nie gezogen, Werbung wird ignoriert.
 - **Abspielen:** Spotify-Link + laufende App → MPRIS `OpenUri`; sonst `spotify:`-Schema → Webplayer/Suche. YouTube → Browser (`youtube.com`).
+- **Abspiel-Kontrolle (Spotify):** Nach `OpenUri` wird bis ca. 2,5 s asynchron beobachtet (PropertiesChanged + `GetAll`): richtiger Titel (`mpris:trackid`) mit „Playing“ → „Läuft in Spotify“; richtiger Titel pausiert → einmal `Play()`; Titel fehlt → einmal `OpenUri` wiederholen, danach nicht-modale Warnung. Ein neuer Song bricht die Kontrolle ab.
+- **Spotify-Autostart:** Song mit Spotify-Link, aber Spotify nicht am Bus → Desktop-App per `Gio.DesktopAppInfo` starten, bis 15 s auf `org.mpris.MediaPlayer2.spotify` warten, dann `OpenUri` + Kontrolle; sonst bisheriger Rückfall.
+- **Nach Ablauf pausieren:** Beim Übergang Spielzeit → Auflösung pausiert die App Spotify (MPRIS) bzw. die lokale Datei; nicht im Folgen-Modus und nicht bei YouTube.
 - **Player-Wahl (MPRIS):** Spotify → nur Spotify; YouTube → Browser. Ein gespeicherter Player hat Vorrang, wenn er zum Ziel passt.
 - **Stufen:** 1 Reihe → 2 Reihen → Volle Karte bei weiterlaufender Ziehung (passt zur Prognose); danach neue Runde mit neu gemischter Ziehung. Neue Karten setzen Runde und Gewinnerliste zurück (alte Stände liegen in `sicherungen/`).
 - **Gewinner:** nur eintragbar, wenn die Karte das aktuelle Ziel erreicht hat; gleiche Karte und Stufe nie doppelt, andere Stufe nur nach Rückfrage.
@@ -56,7 +61,7 @@ musik_bingo/
 
 ## Spielstand
 
-JSON mit `version: 1`, atomar geschrieben, Dateirechte 0600 (nur der Benutzer). Neue Felder (`link`, `playback_target`, `follow_player`, `player_name`) sind optional, alte Stände laden weiter. Beim Import werden Typen, Kartenregeln, Ziehreihenfolge und Links geprüft; ungültige Dateien werden abgelehnt, statt still repariert zu werden.
+JSON mit `version: 1`, atomar geschrieben, Dateirechte 0600 (nur der Benutzer). Neue Felder (`link`, `playback_target`, `follow_player`, `player_name`, `pause_after_timer` – Standard an) sind optional, alte Stände laden weiter. Beim Import werden Typen, Kartenregeln, Ziehreihenfolge und Links geprüft; ungültige Dateien werden abgelehnt, statt still repariert zu werden.
 
 ## Kataloge
 

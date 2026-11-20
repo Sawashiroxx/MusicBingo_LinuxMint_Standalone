@@ -57,6 +57,8 @@ class GameService:
         # Song-Timer (0 = aus) und Auflösungszeit für den Beamer
         self.timer_seconds = 0
         self.reveal_seconds = 5
+        # Läuft die Spielzeit des Song-Timers ab, wird die Wiedergabe pausiert (Spotify/lokal)
+        self.pause_after_timer = True
 
     def set_song_text(self, text: str) -> list[Song]:
         self.song_text = text
@@ -233,6 +235,7 @@ class GameService:
                 "round_number": self.round_number,
                 "timer_seconds": self.timer_seconds,
                 "reveal_seconds": self.reveal_seconds,
+                "pause_after_timer": self.pause_after_timer,
             },
             "winners": [winner.to_dict() for winner in self.winners],
             "songs": [song.to_dict() for song in self.game.songs],
@@ -412,6 +415,10 @@ class GameService:
             service.set_timer(settings.get("timer_seconds", 0), settings.get("reveal_seconds", 5))
         except ValueError as error:
             raise ValueError(f"Ungültige Timer-Einstellung im Spielstand: {error}") from error
+        pause_after_timer = settings.get("pause_after_timer", True)
+        if not isinstance(pause_after_timer, bool):
+            raise ValueError("Ungültige Einstellung „Nach Ablauf pausieren“ im Spielstand.")
+        service.pause_after_timer = pause_after_timer
         raw_winners = data.get("winners", [])
         if not isinstance(raw_winners, list) or len(raw_winners) > MAX_WINNERS:
             raise ValueError("Ungültige Gewinnerliste im Spielstand.")
