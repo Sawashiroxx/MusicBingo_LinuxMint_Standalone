@@ -36,6 +36,8 @@ XML = """
     <method name="OpenUri"><arg type="s" direction="in"/></method>
     <property name="Metadata" type="a{sv}" access="read"/>
     <property name="PlaybackStatus" type="s" access="read"/>
+    <property name="CanControl" type="b" access="read"/>
+    <property name="CanPlay" type="b" access="read"/>
   </interface>
 </node>
 """
@@ -69,6 +71,12 @@ class FakePlayer:
         self.next_at: list[str] = []
         self.block_next_on_ads = False
         self.reject_open_uri = False  # wie eine Spotify-Version, die OpenUri nicht unterstützt
+        # Verhalten bei OpenUri: "play" (Titel läuft), "paused" (Titel geladen, aber pausiert),
+        # "ignore" (nichts passiert), "ignore_once" (erst der zweite Aufruf wirkt),
+        # "stuck_paused" (Titel geladen, Play() wirkt nicht)
+        self.open_mode = "play"
+        self.can_control = True
+        self._ignored_once = False
         self.ready = threading.Event()
         self.thread = threading.Thread(target=self._run, args=(address, name), daemon=True)
         self.thread.start()
@@ -98,6 +106,8 @@ class FakePlayer:
             return GLib.Variant("s", self.identity)
         if prop == "Metadata":
             return metadata_variant(self.tracks[self.position]) if self.tracks else GLib.Variant("a{sv}", {})
+        if prop in ("CanControl", "CanPlay"):
+            return GLib.Variant("b", self.can_control)
         return GLib.Variant("s", self.status)
 
     def _method(self, _conn, _sender, _path, _iface, method, params, invocation):
@@ -113,11 +123,36 @@ class FakePlayer:
                 self.position = 0
             self.emit()
         elif method == "Pause":
-            self.status = "Paused"
+            self.set_status("Paused")
+        elif method == "Play" and self.open_mode != "stuck_paused":
+            self.set_status("Playing")
         elif method == "OpenUri" and self.reject_open_uri:
             invocation.return_dbus_error("org.mpris.MediaPlayer2.Error", "OpenUri wird nicht unterstützt")
             return
+        elif method == "OpenUri":
+            self._open(params.unpack()[0])
         invocation.return_value(None)
+
+    def _open(self, uri: str) -> None:
+        if self.open_mode == "ignore" or (self.open_mode == "ignore_once" and not self._ignored_once):
+            self._ignored_once = True
+            return
+        track_id = uri.rsplit(":", 1)[-1]
+        trackid = f"/com/spotify/track/{track_id}"
+        index = next((i for i, t in enumerate(self.tracks) if t.get("mpris:trackid") == trackid), None)
+        if index is None:
+            self.tracks.append({"mpris:trackid": trackid, "xesam:title": f"Titel {track_id}",
+                                "xesam:artist": ["Unbekannt"]})
+            index = len(self.tracks) - 1
+        self.position = index
+        self.status = "Paused" if self.open_mode in ("paused", "stuck_paused") else "Playing"
+        self.emit()
+
+    def set_status(self, status: str) -> None:
+        self.status = status
+        self.conn.emit_signal(None, "/org/mpris/MediaPlayer2", "org.freedesktop.DBus.Properties", "PropertiesChanged",
+                              GLib.Variant("(sa{sv}as)", ("org.mpris.MediaPlayer2.Player",
+                                                          {"PlaybackStatus": GLib.Variant("s", status)}, [])))
 
     def advance(self) -> None:
         self.position = (self.position + 1) % len(self.tracks)
@@ -138,7 +173,8 @@ class FakePlayer:
     def emit(self) -> None:
         self.conn.emit_signal(None, "/org/mpris/MediaPlayer2", "org.freedesktop.DBus.Properties", "PropertiesChanged",
                               GLib.Variant("(sa{sv}as)", ("org.mpris.MediaPlayer2.Player",
-                                                          {"Metadata": metadata_variant(self.tracks[self.position])}, [])))
+                                                          {"Metadata": metadata_variant(self.tracks[self.position]),
+                                                           "PlaybackStatus": GLib.Variant("s", self.status)}, [])))
         self._schedule_ad_end()
 
     closed = False

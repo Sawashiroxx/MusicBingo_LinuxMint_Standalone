@@ -69,13 +69,30 @@ def track_from_metadata(metadata: dict | None) -> PlayingTrack | None:
     if not isinstance(artists, (list, tuple)):
         artists = []
     artist = ", ".join(item.strip() for item in artists[:10] if isinstance(item, str) and item.strip())[:300]
-    trackid = metadata.get("mpris:trackid")
-    trackid = trackid[:300] if isinstance(trackid, str) else ""
-    url = metadata.get("xesam:url")
-    url = url[:500] if isinstance(url, str) else ""
-    lowered = f"{trackid} {url}".casefold()
-    if ":ad:" in lowered or "/ad/" in lowered or "/com/spotify/ad" in lowered:
+    if _is_ad(metadata) or not title:
         return None
+    return PlayingTrack(title, artist, link_from_metadata(metadata))
+
+
+def _ids(metadata: dict) -> tuple[str, str]:
+    trackid = metadata.get("mpris:trackid")
+    url = metadata.get("xesam:url")
+    return (trackid[:300] if isinstance(trackid, str) else "", url[:500] if isinstance(url, str) else "")
+
+
+def _is_ad(metadata: dict) -> bool:
+    lowered = " ".join(_ids(metadata)).casefold()
+    return ":ad:" in lowered or "/ad/" in lowered or "/com/spotify/ad" in lowered
+
+
+def link_from_metadata(metadata: dict | None) -> str:
+    """Vereinheitlichter Link des laufenden Eintrags (Spotify-Track oder YouTube-Video), sonst ""."""
+    if not metadata:
+        return ""
+    metadata = {key: _unpack(value) for key, value in metadata.items()}
+    if _is_ad(metadata):
+        return ""
+    trackid, url = _ids(metadata)
     link = normalize_link(url)
     if not link and trackid:
         # Spotify meldet z. B. „/com/spotify/track/<ID>“ oder „spotify:track:<ID>“.
@@ -83,9 +100,7 @@ def track_from_metadata(metadata: dict | None) -> PlayingTrack | None:
             link = normalize_link("spotify:track:" + trackid.rsplit("/", 1)[-1])
         else:
             link = normalize_link(trackid)
-    if not title:
-        return None
-    return PlayingTrack(title, artist, link)
+    return link
 
 
 def track_identity(metadata: dict | None) -> str:
@@ -207,6 +222,23 @@ class MprisPlayer:
         self.connection.call(
             self.info.bus_name, MPRIS_PATH, "org.freedesktop.DBus.Properties", "Get",
             GLib.Variant("(ss)", (PLAYER_IFACE, "Metadata")), GLib.VariantType.new("(v)"),
+            Gio.DBusCallFlags.NONE, CALL_TIMEOUT_MS, None, done,
+        )
+
+    def fetch_state(self, callback: Callable[[dict], None],
+                    on_error: Callable[[str], None] | None = None) -> None:
+        """Alle Player-Eigenschaften (Metadata, PlaybackStatus, CanControl …) asynchron abfragen."""
+        def done(connection, result, _data=None):
+            try:
+                value = connection.call_finish(result).unpack()[0]
+            except GLib.Error as error:
+                if on_error:
+                    on_error(error.message)
+                return
+            callback(value if isinstance(value, dict) else {})
+        self.connection.call(
+            self.info.bus_name, MPRIS_PATH, "org.freedesktop.DBus.Properties", "GetAll",
+            GLib.Variant("(s)", (PLAYER_IFACE,)), GLib.VariantType.new("(a{sv})"),
             Gio.DBusCallFlags.NONE, CALL_TIMEOUT_MS, None, done,
         )
 

@@ -47,6 +47,12 @@ class GuiTests(unittest.TestCase):
     def test_spotify_open_uri_fallback_uses_web_player(self):
         self.scenario("spotify_fallback.py")
 
+    def test_spotify_playback_is_checked_started_tested_and_paused(self):
+        """Abspiel-Kontrolle, Spotify-Autostart, „Spotify testen“ und „Nach Ablauf pausieren“."""
+        for mode in ("pausiert", "ignoriert", "start", "test", "pause"):
+            with self.subTest(mode=mode):
+                self.scenario("spotify_abspielen.py", mode)
+
     def test_follow_youtube_in_browser_end_to_end(self):
         self.scenario("follow_youtube.py")
 
