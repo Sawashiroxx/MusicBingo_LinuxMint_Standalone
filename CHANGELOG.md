@@ -1,5 +1,10 @@
 # Änderungsprotokoll
 
+## Unveröffentlicht
+
+- Tests: Neues GUI-Szenario „wie am Abend“ auf einem 1366×768-Bildschirm. Es nutzt echte Dialoge statt automatischer Bestätigung, gehaltene Tasten, echte Mausklicks und Doppelklicks, Tippfehler bei der Kartennummer, lange Spotify-Titel, den Beamer mit langem Gewinnernamen und einen Speicherfehler. Gegen den Stand vor 2.5.1 schlagen 19 von 21 Prüfungen an.
+- CI: Fehlt ein GUI-Werkzeug, schlägt der Test fehl, statt still übersprungen zu werden.
+
 ## 2.5.1 – November 2026
 
 Behoben nach der dritten Gesamtprüfung (Claude Fable 5.2, höchste Stufe):
