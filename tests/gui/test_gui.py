@@ -49,8 +49,14 @@ class GuiTests(unittest.TestCase):
         self.scenario("spotify_fallback.py")
 
     def test_spotify_playback_is_checked_started_tested_and_paused(self):
-        """Abspiel-Kontrolle, Spotify-Autostart, „Spotify testen“ und „Nach Ablauf pausieren“."""
-        for mode in ("pausiert", "ignoriert", "start", "test", "pause"):
+        """Abspiel-Kontrolle, Spotify-Autostart, „Spotify testen“ und „Nach Ablauf pausieren“.
+
+        haengt: Spotify antwortet nicht – Oberfläche bleibt bedienbar. spaet: Titel startet nach der Prüfzeit.
+        testabbruch: abgebrochener und neu gestarteter Test läuft nur einmal. pause_kontrolle: nach der
+        Pause zum Ende der Spielzeit sendet die Kontrolle kein „Play“ mehr.
+        """
+        for mode in ("pausiert", "ignoriert", "start", "test", "pause", "haengt", "spaet", "testabbruch",
+                     "pause_kontrolle"):
             with self.subTest(mode=mode):
                 self.scenario("spotify_abspielen.py", mode)
 

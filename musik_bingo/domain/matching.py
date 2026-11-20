@@ -120,3 +120,14 @@ def links_from_playlist(pool: list[Song], playlist: list[Song]) -> dict[str, str
         if song is not None and not song.link and song.key not in links:
             links[song.key] = link
     return links
+
+
+def is_same_song(track: PlayingTrack | None, song: Song | None) -> bool:
+    """Gleicher Song nach der Song-Identität (Titel + Interpret, ohne Groß-/Kleinschreibung).
+
+    Für Spotifys „Relinking“: Dort kann derselbe Titel unter einer anderen Track-ID laufen.
+    Bewusst streng (anders als SongMatcher), damit kein anderer Titel als „läuft“ gilt.
+    """
+    if track is None or song is None or not track.title.strip():
+        return False
+    return Song(track.title.strip(), track.artist.strip()).key == song.key

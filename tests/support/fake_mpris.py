@@ -43,8 +43,15 @@ XML = """
 """
 
 
+SPOTIFY_TRACK_PREFIX = "/com/spotify/track/"
+
+
 def metadata_variant(track: dict) -> GLib.Variant:
     data = {}
+    trackid = track.get("mpris:trackid", "")
+    if trackid.startswith(SPOTIFY_TRACK_PREFIX) and "xesam:url" not in track:
+        # Wie echtes Spotify: zusätzlich die Web-Adresse des Titels
+        data["xesam:url"] = GLib.Variant("s", "https://open.spotify.com/track/" + trackid[len(SPOTIFY_TRACK_PREFIX):])
     for key, value in track.items():
         if key == "mpris:trackid":
             data[key] = GLib.Variant("o", value)
@@ -73,8 +80,17 @@ class FakePlayer:
         self.reject_open_uri = False  # wie eine Spotify-Version, die OpenUri nicht unterstützt
         # Verhalten bei OpenUri: "play" (Titel läuft), "paused" (Titel geladen, aber pausiert),
         # "ignore" (nichts passiert), "ignore_once" (erst der zweite Aufruf wirkt),
-        # "stuck_paused" (Titel geladen, Play() wirkt nicht)
+        # "stuck_paused" (Titel geladen, Play() wirkt nicht),
+        # "delayed" (Titel wird geladen – pausiert, Play() wirkt nicht – und läuft erst nach start_delay_s;
+        #   jedes weitere OpenUri startet das Laden neu), "relinked" (Spotify spielt den Titel unter einer
+        #   anderen Track-ID mit gleichem Titel/Interpret, wie beim „Relinking“ in anderen Ländern)
         self.open_mode = "play"
+        self.start_delay_s = 3.0
+        self.loading_track: dict | None = None  # "delayed": während des Ladens gemeldeter Eintrag (None = Ziel)
+        self.open_delay_s = 0.0  # OpenUri wirkt erst nach so vielen Sekunden (Metadaten bis dahin unverändert)
+        self.load_starts = 0
+        self._loading = False
+        self._load_token = 0
         self.can_control = True
         self._ignored_once = False
         self.ready = threading.Event()
@@ -124,29 +140,73 @@ class FakePlayer:
             self.emit()
         elif method == "Pause":
             self.set_status("Paused")
-        elif method == "Play" and self.open_mode != "stuck_paused":
+        elif method == "Play" and self.open_mode != "stuck_paused" and not self._loading:
             self.set_status("Playing")
         elif method == "OpenUri" and self.reject_open_uri:
             invocation.return_dbus_error("org.mpris.MediaPlayer2.Error", "OpenUri wird nicht unterstützt")
             return
+        elif method == "OpenUri" and self.open_delay_s:
+            uri = params.unpack()[0]
+            self._later(self.open_delay_s, lambda: self._open(uri))
         elif method == "OpenUri":
             self._open(params.unpack()[0])
         invocation.return_value(None)
 
+    def _later(self, seconds: float, action) -> None:
+        """Im Hauptloop des Players nach ``seconds`` ausführen."""
+        source = GLib.timeout_source_new(int(seconds * 1000))
+        source.set_callback(lambda *_args: action() or False)
+        source.attach(self.context)
+
+    def _index(self, trackid: str, template: dict | None = None) -> int:
+        index = next((i for i, t in enumerate(self.tracks) if t.get("mpris:trackid") == trackid), None)
+        if index is None:
+            track_id = trackid.rsplit("/", 1)[-1]
+            entry = dict(template) if template else {"xesam:title": f"Titel {track_id}", "xesam:artist": ["Unbekannt"]}
+            entry.pop("xesam:url", None)
+            entry["mpris:trackid"] = trackid
+            self.tracks.append(entry)
+            index = len(self.tracks) - 1
+        return index
+
     def _open(self, uri: str) -> None:
+        if self.closed:
+            return
         if self.open_mode == "ignore" or (self.open_mode == "ignore_once" and not self._ignored_once):
             self._ignored_once = True
             return
         track_id = uri.rsplit(":", 1)[-1]
-        trackid = f"/com/spotify/track/{track_id}"
-        index = next((i for i, t in enumerate(self.tracks) if t.get("mpris:trackid") == trackid), None)
-        if index is None:
-            self.tracks.append({"mpris:trackid": trackid, "xesam:title": f"Titel {track_id}",
-                                "xesam:artist": ["Unbekannt"]})
-            index = len(self.tracks) - 1
+        index = self._index(SPOTIFY_TRACK_PREFIX + track_id)
+        if self.open_mode == "relinked":
+            # andere ID (umgedrehte Zeichenfolge, weiterhin gültig), gleicher Titel und Interpret
+            index = self._index(SPOTIFY_TRACK_PREFIX + track_id[::-1], self.tracks[index])
+        if self.open_mode == "delayed":
+            self._start_loading(index)
+            return
         self.position = index
         self.status = "Paused" if self.open_mode in ("paused", "stuck_paused") else "Playing"
         self.emit()
+
+    def _start_loading(self, index: int) -> None:
+        self.load_starts += 1
+        self._load_token += 1
+        token = self._load_token
+        self._loading = True
+        if self.loading_track is not None:
+            self.position = self._index(self.loading_track["mpris:trackid"], self.loading_track)
+        else:
+            self.position = index
+        self.status = "Paused"
+        self.emit()
+
+        def loaded() -> None:
+            if self.closed or token != self._load_token:
+                return  # inzwischen neu geöffnet: Laden beginnt von vorn
+            self._loading = False
+            self.position = index
+            self.status = "Playing"
+            self.emit()
+        self._later(self.start_delay_s, loaded)
 
     def set_status(self, status: str) -> None:
         self.status = status

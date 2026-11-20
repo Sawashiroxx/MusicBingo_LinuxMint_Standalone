@@ -3,7 +3,16 @@ import copy
 import unittest
 
 from musik_bingo.application.game_service import GameService
-from musik_bingo.application.spotify_check import AUTOPLAY_HINT, checklist, count_spotify_links, pick_test_song, report
+from musik_bingo.application.spotify_check import (
+    AUTOPLAY_HINT,
+    NO_REPLY_NOTE,
+    NO_TEST_SONG_NOTE,
+    checklist,
+    count_spotify_links,
+    pick_test_song,
+    report,
+)
+from musik_bingo.domain.matching import PlayingTrack, is_same_song
 from musik_bingo.domain.models import Song
 
 WHAM = Song("Last Christmas", "Wham!", "spotify:track:4uLU6hMCjMI75M1A2tKUQC")
@@ -78,10 +87,44 @@ class TestSongTests(unittest.TestCase):
         self.assertEqual(count_spotify_links([]), 0)
 
     def test_current_song_with_link_wins_otherwise_first_with_link(self):
-        self.assertIs(pick_test_song(MARIAH, [WHAM, MARIAH]), MARIAH)
-        self.assertIs(pick_test_song(PLAIN, [YOUTUBE, PLAIN, WHAM, MARIAH]), WHAM)
-        self.assertIs(pick_test_song(None, [PLAIN, MARIAH]), MARIAH)
-        self.assertIsNone(pick_test_song(YOUTUBE, [YOUTUBE, PLAIN]))
+        self.assertIs(pick_test_song(MARIAH, [WHAM, MARIAH], [MARIAH]), MARIAH)
+        # Vor Spielbeginn (nichts gezogen) darf der erste Song mit Link spielen.
+        self.assertIs(pick_test_song(None, [PLAIN, MARIAH], []), MARIAH)
+        self.assertIs(pick_test_song(None, [YOUTUBE, PLAIN, WHAM, MARIAH]), WHAM)
+        self.assertIsNone(pick_test_song(None, [YOUTUBE, PLAIN], []))
+        self.assertIsNone(pick_test_song(YOUTUBE, [YOUTUBE, PLAIN], [YOUTUBE]))
+
+    def test_running_round_never_plays_an_undrawn_song(self):
+        """Gäste würden einen noch nicht gezogenen Song hören – nur aktueller oder bereits gezogener Song."""
+        songs = [YOUTUBE, PLAIN, WHAM, MARIAH]
+        # aktueller Song ohne Link, WHAM schon gezogen → WHAM; MARIAH (nicht gezogen) nie
+        self.assertIs(pick_test_song(PLAIN, songs, [WHAM, PLAIN]), WHAM)
+        # zuletzt gezogener Song mit Link hat Vorrang vor älteren
+        self.assertIs(pick_test_song(PLAIN, songs, [WHAM, MARIAH, PLAIN]), MARIAH)
+        # nur Songs ohne Link gezogen → nichts abspielen, obwohl WHAM/MARIAH Links haben
+        self.assertIsNone(pick_test_song(PLAIN, songs, [YOUTUBE, PLAIN]))
+        # auch ohne „aktuellen“ Song: gezogen ist gezogen
+        self.assertIsNone(pick_test_song(None, songs, [PLAIN]))
+
+    def test_report_explains_test_without_song_and_unresponsive_spotify(self):
+        items = checklist(True, True, False, False, 2, 4)
+        text = report(items, [NO_TEST_SONG_NOTE])
+        self.assertIn(NO_TEST_SONG_NOTE, text)
+        self.assertIn("noch nicht gezogen", NO_TEST_SONG_NOTE)
+        self.assertTrue(text.rstrip().endswith(AUTOPLAY_HINT))
+        self.assertIn("Spotify reagiert nicht", report(items, [NO_REPLY_NOTE]))
+        self.assertEqual(report(items), report(items, []))
+
+
+class RelinkTests(unittest.TestCase):
+    def test_same_title_and_artist_like_song_identity(self):
+        self.assertTrue(is_same_song(PlayingTrack("Last Christmas", "Wham!", "spotify:track:x"), WHAM))
+        self.assertTrue(is_same_song(PlayingTrack(" last christmas ", "WHAM!"), WHAM))
+        self.assertFalse(is_same_song(PlayingTrack("Last Christmas", "Taylor Swift"), WHAM))
+        self.assertFalse(is_same_song(PlayingTrack("Last Christmas - Remastered", "Wham!"), WHAM))
+        self.assertFalse(is_same_song(None, WHAM))
+        self.assertFalse(is_same_song(PlayingTrack("Last Christmas", "Wham!"), None))
+        self.assertFalse(is_same_song(PlayingTrack("", ""), Song("x")))
 
 
 if __name__ == "__main__":
