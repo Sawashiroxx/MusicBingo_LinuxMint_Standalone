@@ -1,5 +1,15 @@
 # Änderungsprotokoll
 
+## 2.5 – November 2026
+
+- **Spotify im Mittelpunkt:**
+  - Abspiel-Kontrolle: Nach dem Ziehen prüft die App, ob der Titel in Spotify wirklich läuft. Notfalls schickt sie „Play“ oder öffnet ihn ein zweites Mal, sonst gibt es eine Warnung.
+  - Spotify wird automatisch gestartet, wenn es nicht läuft (normale Installation, Snap, Flatpak).
+  - Knopf **Spotify testen**: Prüfliste vor der Feier mit Verbindung, Abspielen, Pause, Link-Abdeckung und Autoplay-Hinweis.
+  - **Nach Ablauf pausieren:** Läuft die Spielzeit des Song-Timers ab, pausiert die Musik bis zum nächsten Ziehen.
+  - **Link-Übersicht:** „x von y Songs direkt abspielbar“. Fehlende Spotify-Links lassen sich per Einfügen nachtragen; „Mit Playlist abgleichen“ überträgt Links auf vorhandene Songs.
+- YouTube Music entfernt, normales YouTube bleibt. Alte Spielstände mit YouTube Music laden als YouTube.
+
 ## 2.4.2 – November 2026
 
 - Neu: Menüeintrag **Musik Bingo aktualisieren** – Update per Klick ohne Terminal. Bricht ab, wenn die App
