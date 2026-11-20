@@ -121,7 +121,12 @@ class RelinkTests(unittest.TestCase):
         self.assertTrue(is_same_song(PlayingTrack("Last Christmas", "Wham!", "spotify:track:x"), WHAM))
         self.assertTrue(is_same_song(PlayingTrack(" last christmas ", "WHAM!"), WHAM))
         self.assertFalse(is_same_song(PlayingTrack("Last Christmas", "Taylor Swift"), WHAM))
-        self.assertFalse(is_same_song(PlayingTrack("Last Christmas - Remastered", "Wham!"), WHAM))
+        # Relinking meldet oft Zusätze bzw. mehrere Interpreten – das ist derselbe Titel
+        self.assertTrue(is_same_song(PlayingTrack("Last Christmas - Remastered", "Wham!"), WHAM))
+        self.assertTrue(is_same_song(PlayingTrack("Last Christmas", "Wham!, George Michael"), WHAM))
+        # … aber ein anderer Titel bleibt ein anderer Titel
+        self.assertFalse(is_same_song(PlayingTrack("Last Christmas Party", "Wham!"), WHAM))
+        self.assertFalse(is_same_song(PlayingTrack("Last Christmas", "Taylor Swift, Ed Sheeran"), WHAM))
         self.assertFalse(is_same_song(None, WHAM))
         self.assertFalse(is_same_song(PlayingTrack("Last Christmas", "Wham!"), None))
         self.assertFalse(is_same_song(PlayingTrack("", ""), Song("x")))

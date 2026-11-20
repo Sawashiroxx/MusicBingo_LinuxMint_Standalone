@@ -111,6 +111,9 @@ class UpdateScriptTests(unittest.TestCase):
         branch = self.git("rev-parse", "--abbrev-ref", "HEAD", cwd=self.install).stdout.strip()
         self.assertEqual(branch, "main")
         self.assertIn("1.3.0", self.installed_version())
+        # Ein späteres „git pull“ im Terminal muss weiter funktionieren (Tracking gesetzt)
+        upstream = self.git("rev-parse", "--abbrev-ref", "main@{upstream}", cwd=self.install).stdout.strip()
+        self.assertEqual(upstream, "origin/main")
 
     def test_refuses_while_app_is_running(self):
         app = subprocess.Popen(["python3", "-c", "import time; time.sleep(30)", "-m", "musik_bingo.main"])
@@ -175,6 +178,26 @@ class UpdateScriptTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Version 1.0.0 → 1.0.0 (neuer Stand)", result.stdout)
         self.assertTrue((self.install / "fix.txt").is_file())
+
+    def test_single_branch_clone_of_merged_feature_branch_updates(self):
+        """Regression (Fable, 2. Durchgang): Klon nur eines Zweigs → origin/main fehlte, Update hing fest."""
+        self.git("checkout", "--quiet", "-b", "feature/x", cwd=self.source)
+        (self.source / "x.txt").write_text("x\n")
+        self.git("add", "x.txt", cwd=self.source)
+        self.git("commit", "--quiet", "-m", "x", cwd=self.source)
+        self.git("push", "--quiet", "origin", "feature/x", cwd=self.source)
+        single = self.tmp / "einzweig"
+        self.git("clone", "--quiet", "--single-branch", "-b", "feature/x", str(self.origin), str(single))
+        self.git("checkout", "--quiet", "main", cwd=self.source)
+        self.git("merge", "--quiet", "--no-ff", "-m", "merge", "feature/x", cwd=self.source)
+        self.set_version("1.1.0")
+        self.commit_and_push("Version 1.1.0")
+        result = self.run_update(single)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Version 1.0.0 → 1.1.0", result.stdout)
+        branch = self.git("rev-parse", "--abbrev-ref", "HEAD", cwd=single).stdout.strip()
+        self.assertEqual(branch, "main")
+        self.assertTrue((single / "x.txt").is_file())
 
     def test_script_syntax(self):
         subprocess.run(["bash", "-n", str(PROJECT_ROOT / "scripts" / "aktualisieren.sh")], check=True)

@@ -9,6 +9,9 @@
   - **Nach Ablauf pausieren:** Läuft die Spielzeit des Song-Timers ab, pausiert die Musik bis zum nächsten Ziehen.
   - **Link-Übersicht:** „x von y Songs direkt abspielbar“. Fehlende Spotify-Links lassen sich per Einfügen nachtragen; „Mit Playlist abgleichen“ überträgt Links auf vorhandene Songs.
 - YouTube Music entfernt, normales YouTube bleibt. Alte Spielstände mit YouTube Music laden als YouTube.
+- Fenster passt jetzt auf 1366×768-Bildschirme (Seiten scrollen bei Bedarf).
+- Update-Menüeintrag sicherer: bricht ab statt einen noch nicht gemergten Stand zurückzusetzen; erkennt neue Stände auch bei gleicher Versionsnummer.
+- Behoben (Prüfung durch Claude Fable 5.2, zwei Durchgänge, plus Test-Audit): kein Einfrieren bei hängendem Spotify, Warnung verschwindet bei spätem Start, Pause auch bei Auflösung 0 s, Songliste mit Gedankenstrichen, Einzahl/Mehrzahl in Meldungen.
 
 ## 2.4.2 – November 2026
 
