@@ -56,7 +56,7 @@ class GuiTests(unittest.TestCase):
         Pause zum Ende der Spielzeit sendet die Kontrolle kein „Play“ mehr.
         """
         for mode in ("pausiert", "ignoriert", "start", "test", "pause", "haengt", "spaet", "testabbruch",
-                     "pause_kontrolle"):
+                     "pause_kontrolle", "wiederholt"):
             with self.subTest(mode=mode):
                 self.scenario("spotify_abspielen.py", mode)
 

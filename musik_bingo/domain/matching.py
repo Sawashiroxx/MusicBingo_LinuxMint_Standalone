@@ -126,8 +126,14 @@ def is_same_song(track: PlayingTrack | None, song: Song | None) -> bool:
     """Gleicher Song nach der Song-Identität (Titel + Interpret, ohne Groß-/Kleinschreibung).
 
     Für Spotifys „Relinking“: Dort kann derselbe Titel unter einer anderen Track-ID laufen.
-    Bewusst streng (anders als SongMatcher), damit kein anderer Titel als „läuft“ gilt.
+    Streng beim Titel (nach Entfernen von Zusätzen wie „- Remastered“), beim Interpreten genügt,
+    dass einer der gemeldeten Interpreten passt („Wham!, George Michael“) – sonst gälte ein
+    umverknüpfter Titel fälschlich als „nicht gestartet“.
     """
     if track is None or song is None or not track.title.strip():
         return False
-    return Song(track.title.strip(), track.artist.strip()).key == song.key
+    if normalize(clean_title(track.title)) != normalize(clean_title(song.title)):
+        return False
+    wanted = normalize(song.artist)
+    reported = [normalize(part) for part in [track.artist, *track.artist.split(",")] if part.strip()]
+    return wanted in reported if wanted else not reported

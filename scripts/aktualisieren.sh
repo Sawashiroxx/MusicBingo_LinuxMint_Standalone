@@ -70,7 +70,8 @@ trap 'rm -f "$PROTOKOLL"' EXIT
 
 # 1. Nur herunterladen – das ändert am installierten Stand noch nichts
 lade() {
-  git fetch --quiet origin "$ZWEIG"
+  # Ziel ausdrücklich angeben: Ein Klon nur eines Zweigs legt origin/main sonst nicht an
+  git fetch --quiet origin "+refs/heads/$ZWEIG:refs/remotes/origin/$ZWEIG"
 }
 if mit_fenster; then
   ( lade >"$PROTOKOLL" 2>&1; echo $? >"$PROTOKOLL.rc" ) | zenity --progress --pulsate --auto-close \
@@ -94,7 +95,9 @@ if ! ist_enthalten HEAD; then
   if [ "$AKTUELLER_ZWEIG" = "$ZWEIG" ]; then
     fehler "Diese Kopie enthält eigene Änderungen, die es auf GitHub nicht gibt. Update abgebrochen – es wurde nichts verändert."
   fi
-  fehler "Diese Kopie steht auf dem Entwicklungsstand '$AKTUELLER_ZWEIG', der noch nicht in '$ZWEIG' übernommen ist (Pull Request noch nicht gemergt). Ein Update würde neue Funktionen entfernen – abgebrochen, es wurde nichts verändert."
+  fehler "Diese Kopie steht auf dem Entwicklungsstand '$AKTUELLER_ZWEIG', der noch nicht in '$ZWEIG' übernommen ist (Pull Request noch nicht gemergt). Ein Update würde neue Funktionen entfernen – abgebrochen, es wurde nichts verändert.
+
+Wurde der Pull Request schon gemergt (z. B. per Squash), im Terminal einmalig: git checkout $ZWEIG"
 fi
 if git rev-parse --verify --quiet "refs/heads/$ZWEIG" >/dev/null && ! ist_enthalten "refs/heads/$ZWEIG"; then
   fehler "Der lokale Zweig '$ZWEIG' weicht von GitHub ab. Update abgebrochen – es wurde nichts verändert."
@@ -104,8 +107,10 @@ fi
 if [ "$AKTUELLER_ZWEIG" = "$ZWEIG" ]; then
   git merge --quiet --ff-only "origin/$ZWEIG" >"$PROTOKOLL" 2>&1
 else
-  git checkout --quiet -B "$ZWEIG" "origin/$ZWEIG" >"$PROTOKOLL" 2>&1 \
-    && git branch --quiet --set-upstream-to="origin/$ZWEIG" "$ZWEIG" >>"$PROTOKOLL" 2>&1
+  # Tracking nur „wenn möglich“: Ein Klon nur eines Zweigs kennt origin/main nicht als Tracking-Zweig.
+  # Das Skript selbst braucht es nicht (es holt main ausdrücklich), ein späteres „git pull“ schon.
+  git checkout --quiet --no-track -B "$ZWEIG" "origin/$ZWEIG" >"$PROTOKOLL" 2>&1 \
+    && { git branch --quiet --set-upstream-to="origin/$ZWEIG" "$ZWEIG" 2>/dev/null || true; }
 fi || fehler "Update konnte nicht übernommen werden:
 
 $(tail -n 5 "$PROTOKOLL")"

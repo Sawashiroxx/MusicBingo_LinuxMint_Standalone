@@ -293,6 +293,25 @@ def scenario_pause(w):
     check("Auflösung 0 + Autoplay: kein Pause, nächster Titel startet",
           wait(lambda: len(w.service.game.caller.drawn) == drawn_before + 1, 6) and pump(0.6) is None
           and calls("Pause") == pauses and wait(lambda: state()["status"] == "Playing", 8))
+    # Regression (Fable, 2. Durchgang): Nächster Song ohne Spotify-Link startet nicht automatisch –
+    # der alte Titel muss trotz Autoplay pausieren
+    from musik_bingo.domain.models import Song
+    caller = w.service.game.caller
+    nxt = caller.order[caller.index + 1]
+    caller.order[caller.index + 1] = Song(nxt.title, nxt.artist)  # ohne Link
+    check("Titel läuft (vor Song ohne Link)", wait(lambda: state()["status"] == "Playing", 8))
+    drawn_before, pauses = len(caller.drawn), calls("Pause")
+    w._new_song_started()
+    check("nächster Song ohne Link: alter Titel pausiert",
+          wait(lambda: len(caller.drawn) == drawn_before + 1, 6)
+          and wait(lambda: calls("Pause") == pauses + 1 and state()["status"] == "Paused", 3))
+    # Ohne Verbindung zu Spotify: ehrlicher Hinweis statt stiller Untätigkeit
+    w.auto_play_check.set_active(False)
+    w._disconnect_player()
+    w._new_song_started()
+    check("ohne Verbindung: Hinweis „bitte von Hand pausieren“",
+          wait(lambda: "nicht verbunden" in status(w), 6))
+    w.auto_play_check.set_active(True)
     w.reveal_spin.set_value(3)
 
     # Lokale Dateien: GStreamer-Player wird pausiert
@@ -377,7 +396,31 @@ def scenario_late(w):
           wait(lambda: not w.warning_revealer.get_reveal_child(), 10))
     check("Status: läuft jetzt in Spotify", f"Läuft jetzt in Spotify: {song.display_name}" in status(w))
     check("ladender Titel nicht neu gestartet", calls("OpenUri", uri_of(song)) == 1 and state()["load_starts"] == 1)
-    check("Titel läuft", state()["status"] == "Playing")
+    check("Titel läuft", wait(lambda: state()["status"] == "Playing", 3))
+
+
+def scenario_retry(w):
+    """Regression (Fable, 2. Durchgang): Nach „Abspielen“ läuft der Titel – die alte Warnung muss weg.
+    Und: „Karten erzeugen“ beendet die stille Nachbeobachtung (keine Meldung zu alten Songs)."""
+    start_fake("spotify-verzoegert", kind_seconds=4.0)
+    setup_round(w)
+    w.playback_check_ms = 1000
+    w.auto_play_check.set_active(True)
+    w._draw_next()
+    song = w.service.game.caller.current
+    check("Warnung nach der Prüfzeit", wait(lambda: w.warning_revealer.get_reveal_child()
+                                            and WARNING in w.warning_label.get_text(), 6))
+    w.playback_check_ms = 6000  # zweiter Versuch: genug Zeit, der Titel startet darin
+    w._play_audio(None)
+    check("erneutes Abspielen: läuft", wait(lambda: f"Läuft in Spotify: {song.display_name}" in status(w), 12))
+    check("erneutes Abspielen: Warnung weg", not w.warning_revealer.get_reveal_child())
+
+    w.playback_check_ms = 1000
+    w._draw_next()
+    check("Warnung zum nächsten Song", wait(lambda: w.warning_revealer.get_reveal_child(), 6))
+    w._generate(None)
+    pump(6.0)  # länger als der verzögerte Start
+    check("neue Karten: keine „Läuft jetzt“-Meldung zur alten Runde", "Läuft jetzt" not in status(w))
 
 
 def scenario_test_cancelled(w):
@@ -428,7 +471,7 @@ def scenario_pause_control(w):
     check("nach der Pause kein Play mehr", calls("Play") == 0 and state()["status"] == "Paused")
 
 
-SCENARIOS = {"pausiert": scenario_paused, "ignoriert": scenario_ignored, "start": scenario_start,
+SCENARIOS = {"wiederholt": scenario_retry, "pausiert": scenario_paused, "ignoriert": scenario_ignored, "start": scenario_start,
              "test": scenario_test, "pause": scenario_pause, "haengt": scenario_hung, "spaet": scenario_late,
              "testabbruch": scenario_test_cancelled, "pause_kontrolle": scenario_pause_control}
 

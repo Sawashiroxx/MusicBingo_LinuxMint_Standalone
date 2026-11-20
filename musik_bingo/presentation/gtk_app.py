@@ -810,11 +810,11 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             return
         result, mode = outcome
         added, duplicate = self._set_song_list(result.songs, mode)
-        details = [f"{added} Songs übernommen"]
+        details = [f"{count_text(added, 'Song', 'Songs')} übernommen"]
         if duplicate:
             details.append(f"{duplicate} schon vorhanden")
         if result.skipped:
-            details.append(f"{len(result.skipped)} Zeilen übersprungen")
+            details.append(f"{count_text(len(result.skipped), 'Zeile', 'Zeilen')} übersprungen")
         self._set_status("Playlist importiert: " + " · ".join(details))
 
     def _random_mix(self, _button) -> None:
@@ -836,7 +836,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
 
     def _insert_catalog(self, _button, catalog: Catalog) -> None:
         added, duplicate = self._set_song_list(catalog.songs, MODE_APPEND)
-        self._set_status(f"„{catalog.name}“: {added} Songs angehängt" + (f", {duplicate} schon vorhanden" if duplicate else ""))
+        self._set_status(f"„{catalog.name}“: {count_text(added, 'Song', 'Songs')} angehängt" + (f", {duplicate} schon vorhanden" if duplicate else ""))
 
     def _clear_songs(self, _button) -> None:
         if dialogs.confirm(self, "Songliste leeren?",
@@ -998,7 +998,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
                 dialogs.message(self, Gtk.MessageType.WARNING, "Keine Titel eingelesen", reason)
                 return
             added, duplicate = self._set_song_list(cleaned, mode)
-            self._set_status(f"{reason} {added} Songs übernommen" + (f", {duplicate} doppelt" if duplicate else ""))
+            self._set_status(f"{reason} {count_text(added, 'Song', 'Songs')} übernommen" + (f", {duplicate} doppelt" if duplicate else ""))
 
         def on_response(_dialog, _response):
             if self.reader:
@@ -1097,6 +1097,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
     # ================================================================ Karten
 
     def _generate(self, _button) -> None:
+        self._cancel_playback()  # neue Karten: keine Meldungen mehr zu Songs der alten Runde
         try:
             song_text = self._song_text()
             songs = parse_songs(song_text)
@@ -1136,7 +1137,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             if not check.ok:
                 dialogs.message(self, Gtk.MessageType.ERROR, "Gewinn nicht garantiert", "\n".join(check.problems))
             self._update_forecast()
-            self._set_status(f"{len(cards)} Karten aus {len(songs)} Songs erzeugt · {self.forecast_text}")
+            self._set_status(f"{count_text(len(cards), 'Karte', 'Karten')} aus {count_text(len(songs), 'Song', 'Songs')} erzeugt · {self.forecast_text}")
         except (ValueError, NotEnoughSongs) as error:
             dialogs.message(self, Gtk.MessageType.WARNING, "Karten konnten nicht erzeugt werden", str(error))
 
@@ -1619,9 +1620,10 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         elif event == "next":
             caller = self.service.game.caller
             more = len(caller.drawn) < len(caller.pool)
+            upcoming = caller.order[caller.index + 1] if more else None
             # Auflösung 0 s: Die Spielzeit endet direkt mit dem nächsten Ziehen. Pausieren, außer der
-            # nächste Song startet ohnehin automatisch (dann übernimmt Spotify bzw. GStreamer den Wechsel).
-            if phase_before == "läuft" and not (more and self.service.auto_play):
+            # nächste Song startet sicher automatisch (dann übernimmt Spotify bzw. GStreamer den Wechsel).
+            if phase_before == "läuft" and not self._starts_automatically(upcoming):
                 self._pause_after_timer()
             if self.follow_switch.get_active() or more:
                 self._draw_next()
@@ -1630,6 +1632,20 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         if event or self.timer.phase != "aus":
             self._update_beamer()
         return True
+
+    def _starts_automatically(self, song: Song | None) -> bool:
+        """Spielt das Ziehen dieses Songs ihn sofort ab? Nur dann ersetzt er den laufenden Titel.
+
+        Ohne Spotify-Link öffnet Spotify nur die Suche – der alte Titel liefe sonst weiter.
+        """
+        if song is None or not self.service.auto_play:
+            return False
+        target = self.service.playback_target
+        if target == "spotify":
+            return is_spotify(song.link)
+        if target == "lokal":
+            return bool(self.audio_player and self.service.audio_file_for(song))
+        return False
 
     def _toggle_timer_pause(self, _button=None) -> None:
         if self.timer.paused:
@@ -1905,6 +1921,9 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
                 return
             self.playback_check = None
             if result == spotify.PlaybackCheck.PLAYING:
+                # z. B. nach einem erneuten „Abspielen“: die alte Warnung ist damit erledigt
+                if self.warning_kind == "spotify":
+                    self._hide_warning()
                 text = f"Läuft in Spotify: {song.display_name}"
                 self._set_status(text)
                 self._update_audio_controls(text)

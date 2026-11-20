@@ -1,15 +1,15 @@
 # Prüfprotokoll
 
-Stand: 19.11.2026 (v2.4.1) · Umgebung: Ubuntu 24.04 (= Basis Linux Mint 22), Python 3.12, GTK 3.24, Xvfb
+Stand: 20.11.2026 (v2.5.0) · Umgebung: Ubuntu 24.04 (= Basis Linux Mint 22), Python 3.12, GTK 3.24, Xvfb
 
 ## Automatisch (auch in der GitHub-Pipeline)
 
 | Suite | Tests | Ergebnis |
 |---|---|---|
-| Unit (inkl. Gewinngarantie, Prognose, Abend-Logik, Timer, Beamer-Inhalt, Songliste-Fuzzing, Kartensuche) | 125 | ✅ |
-| Integration (Spotify-/YouTube-Simulation, GStreamer inkl. Netzwerksperre, Druck, Installer, Sicherungen, Release-Bau) | 43 | ✅ |
+| Unit (Gewinngarantie, Prognose, Abend-Logik, Timer, Songliste-Fuzzing mit 40 000 Zufallsfällen, Kartensuche, Spotify-Links, Spotify-Prüfliste) | 154 | ✅ |
+| Integration (Spotify-/YouTube-Simulation inkl. hängendem, verzögertem und umverknüpftem Spotify, Abspiel-Kontrolle, GStreamer-Netzwerksperre, Druck, Installer, Update-Skript, Sicherungen, Release-Bau) | 77 | ✅ |
 | Sicherheit | 17 | ✅ |
-| GUI/E2E unter Xvfb (Gesamtablauf, Abend-Funktionen, Spotify, YouTube im Browser, Spotify-Rückfall, echte Tastendrücke, Prüfen ohne Kartennummer, Grenzfälle, Kontrast, Fensterklasse, Screenshots) | 11 | ✅ |
+| GUI/E2E unter Xvfb (Gesamtablauf, Abend-Funktionen, Spotify-Abspielen in 10 Varianten, Spotify-Links, YouTube im Browser, echte Tastendrücke, Prüfen ohne Kartennummer, Grenzfälle, Kontrast, Fensterklasse, Mindestgröße 1366×768, Screenshots) | 13 | ✅ |
 | ruff (Fehler, Bugs, bandit-Sicherheitsregeln), shellcheck | – | ✅ |
 
 ## Gewinngarantie (140 Gäste)
@@ -67,11 +67,32 @@ Nicht prüfbar: echte YouTube-Music-App, echter Browser (ob „Weiter“ und Tit
 
 Tastenkürzel wirkten nicht. Ursache: GTK schaltet bei jedem echten Tastendruck die Fokus-Anzeige ein; die App hielt den Seitenleisten-Eintrag deshalb für „per Tab angesteuert“ und gab ihm die Leertaste. Die bisherigen Tests riefen den Tasten-Handler direkt auf und konnten das nicht sehen. Neu: Test mit echten Tastendrücken über xdotool (schlägt mit dem alten Code fehl).
 
+## v2.5: Prüfung und Test-Audit (Claude Fable 5.2, zwei Durchgänge)
+
+**Funktionen** – 1. Durchgang, 8 Befunde, alle behoben:
+- Oberfläche fror ~26 s ein, wenn Spotify hängt
+- Updater hätte einen noch nicht gemergten Stand auf main zurückgesetzt
+- Spotify-Warnung blieb nach spätem Start stehen
+- „Nach Ablauf pausieren“ wirkte nicht bei Auflösung 0 s
+- Fenster mindestens 960 px hoch (passte nicht auf 1366×768)
+- „Spotify testen“ konnte doppelt laufen bzw. einen noch nicht gezogenen Song abspielen
+- Songliste: Titel mit Gedankenstrich am Ende
+- „1 Links“
+
+2. Durchgang: alle Korrekturen hielten; 7 Randfälle behoben (Warnung nach erneutem Abspielen, Pause wenn der nächste Song keinen Link hat, Klon nur eines Zweigs im Updater, Nachbeobachtung nach „Karten erzeugen“, Umverknüpfung mit Zusätzen/mehreren Interpreten, Einzahl/Mehrzahl bei Songs/Karten/Zeilen, ein unzuverlässiger Testschritt).
+
+**Test-Audit** (wurden Tests an Fehler angepasst?):
+- Alle 9 geprüften Stellen, an denen Erwartungen geändert wurden, testen das richtige Verhalten. Zwei waren zu schwach und wurden verschärft: Songliste-Fuzzing jetzt auch mit Zufallszeichen und ausdrücklicher Ersetzungsliste; Mindestgröße prüft jetzt auch die Höhe.
+- Mutationstest (absichtlich eingebaute Fehler): 1. Durchgang 25 von 27 erkannt, 2. Durchgang 19 von 24 (+1 gleichwertig). Die nicht erkannten wurden mit neuen Tests abgedeckt, soweit sie echtes Verhalten betreffen.
+- Jeder neue Test schlägt mit dem alten Code fehl (geprüft).
+
+Nicht prüfbar ohne echtes Gerät: echtes Spotify (Startzeit, Umverknüpfung, Verhalten bei Hängern), Fenster unter Cinnamon mit Panel, Beamer, Lautsprecher.
+
 ## Vor der Feier einmal von Hand (echter Rechner)
 
 1. `bash scripts/install-desktop.sh`, App über das Menü starten
 2. Karten erzeugen → *Drucken / PDF* → eine Seite prüfen
-3. Spotify-Desktop-App starten (in Spotify „Autoplay“ aus), Playlist abspielen → *Player folgen* → Song wird gezogen; *Weiter* springt im Player zum nächsten Titel
+3. In Spotify „Autoplay“ ausschalten, dann in der App *Spotify testen* – alle Punkte ✓, Playlist abspielen → *Player folgen* → Song wird gezogen; *Weiter* springt im Player zum nächsten Titel
 4. Einen Song ohne Folgen-Modus mit *Abspielen* in Spotify starten
 5. App schließen und neu öffnen → Stand ist erhalten
 6. Beamer anschließen, *Beamer öffnen* → Fenster erscheint im Vollbild auf dem Beamer, Titel verdeckt, T deckt auf
