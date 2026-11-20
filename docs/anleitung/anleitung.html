@@ -3,7 +3,7 @@
      google-chrome --headless=new --no-pdf-header-footer --allow-file-access-from-files \
        --print-to-pdf=../ANLEITUNG-SPIELLEITUNG.pdf "file://$PWD/anleitung.html"
      Screenshots: SCREENSHOT_DIR=… GUI-Test test_screenshots_render_in_both_themes (dark-*.png).
-     Spielzeiten: GameService.forecast(runs=400), 75 Songs, 5×5 mit Freifeld, 50 s pro Song. -->
+     Spielzeiten: GameService.forecast(runs=300), „Volle Karte“, 3×3 mit 150 Karten (kürzeste) bis 5×5 mit 20 Karten (längste), Songliste 30–100, pro Song + 10 s. -->
 <html lang="de">
 <head>
 <meta charset="utf-8">
@@ -134,6 +134,12 @@
   .legend { display: flex; gap: 6mm; justify-content: flex-end; font-size: 8pt; color: var(--muted); margin-top: 1mm; }
   .legend i { display: inline-block; width: 3mm; height: 3mm; border-radius: .6mm; margin-right: 1.5mm; vertical-align: -.3mm; }
   .checklist.one { grid-template-columns: 1fr; gap: 1.8mm; font-size: 9.5pt; }
+  .range { background: linear-gradient(90deg, #3fb984, var(--green)); border-radius: 1.5mm; }
+  .legend i.range { display:inline-block; }
+  .rl, .rr { position:absolute; top:50%; transform:translateY(-50%); font-size:7.5pt; font-weight:800; white-space:nowrap; }
+  .rl { margin-left:1.2mm; color:#fff; }
+  .rr { margin-left:1.5mm; color: var(--green); }
+  table.dur { font-size:9pt; margin-bottom:4mm; } table.dur td, table.dur th { padding:2mm 2.5mm; white-space:nowrap; } table.dur td:first-child { width:auto; }
 </style>
 </head>
 <body>
@@ -157,7 +163,7 @@
   </div>
 
   <div class="phases">
-    <div class="phase"><span class="n">0</span><h3>Planen</h3><p>75 Songs ≈ 1 Stunde. Karten: Gäste + 15 %.</p></div>
+    <div class="phase"><span class="n">0</span><h3>Planen</h3><p>Runde 8–37 Min. je nach Liste und Format. Karten: Gäste + 15 %.</p></div>
     <div class="phase"><span class="n">1</span><h3>Vorbereiten</h3><p>Songs laden, Karten drucken, Beamer und Spotify testen.</p></div>
     <div class="phase"><span class="n">2</span><h3>Spielen</h3><p>Leertaste = nächster Song. T deckt den Titel auf.</p></div>
     <div class="phase"><span class="n">3</span><h3>Bingo prüfen</h3><p>Kartennummer eingeben, Gewinner eintragen.</p></div>
@@ -168,44 +174,34 @@
 
 <!-- ============ 0. Planen ============ -->
 <section class="page">
-  <div class="section-head"><div class="n">0</div><div><h2>Planen: Spielzeit &amp; Material</h2><p>Die Songzahl bestimmt die Dauer – nicht die Zahl der Spieler</p></div></div>
-  <p class="lead">Faustregel: <b>75 Songs ≈ 1 Stunde</b> für eine komplette Runde bis „Volle Karte“ (rund 55 Min. Musik plus Gewinner-Ehrungen) – egal ob 10 oder 140 Spieler.</p>
+  <div class="section-head"><div class="n">0</div><div><h2>Planen: Spielzeit &amp; Material</h2><p>Songliste und Kartenformat bestimmen die Dauer – die Spielerzahl kaum</p></div></div>
+  <p class="lead">Eine Runde bis „Volle Karte“ dauert bei <b>15 s pro Song</b> und 50 Songs <b>11–19 Minuten</b>: 3×3 ist die kürzeste, 5×5 die längste Variante. Für eine Stunde spielt ihr mehrere Runden.</p>
 
-  <h3 class="h3">Wann gibt es Gewinner? (75 Songs, 5×5 mit Freifeld, Minuten ab Start)</h3>
+  <h3 class="h3">Dauer einer Runde: 3×3 (kürzeste) bis 5×5 (längste), 15 s pro Song</h3>
   <div class="timeline">
-    <div class="axis"><span style="left:0%">0</span><span style="left:25%">15</span><span style="left:50%">30</span><span style="left:75%">45</span><span style="left:100%">60 Min.</span></div>
-    <div class="trow"><div class="tl">10 Spieler</div><div class="track">
-<div class="seg s1" style="width:38.3%"></div><div class="seg s2" style="left:38.3%;width:16.7%"></div><div class="seg s3" style="left:55.0%;width:41.7%"></div>
-<span class="mk" style="left:38.3%">23</span><span class="mk" style="left:55.0%">33</span><span class="mk end" style="left:96.7%">58</span></div></div>
-<div class="trow"><div class="tl">20 Spieler</div><div class="track">
-<div class="seg s1" style="width:33.3%"></div><div class="seg s2" style="left:33.3%;width:18.3%"></div><div class="seg s3" style="left:51.7%;width:41.7%"></div>
-<span class="mk" style="left:33.3%">20</span><span class="mk" style="left:51.7%">31</span><span class="mk end" style="left:93.3%">56</span></div></div>
-<div class="trow"><div class="tl">30 Spieler</div><div class="track">
-<div class="seg s1" style="width:30.0%"></div><div class="seg s2" style="left:30.0%;width:18.3%"></div><div class="seg s3" style="left:48.3%;width:43.3%"></div>
-<span class="mk" style="left:30.0%">18</span><span class="mk" style="left:48.3%">29</span><span class="mk end" style="left:91.7%">55</span></div></div>
-<div class="trow"><div class="tl">50 Spieler</div><div class="track">
-<div class="seg s1" style="width:28.3%"></div><div class="seg s2" style="left:28.3%;width:18.3%"></div><div class="seg s3" style="left:46.7%;width:43.3%"></div>
-<span class="mk" style="left:28.3%">17</span><span class="mk" style="left:46.7%">28</span><span class="mk end" style="left:90.0%">54</span></div></div>
-<div class="trow"><div class="tl">100 Spieler</div><div class="track">
-<div class="seg s1" style="width:23.3%"></div><div class="seg s2" style="left:23.3%;width:18.3%"></div><div class="seg s3" style="left:41.7%;width:46.7%"></div>
-<span class="mk" style="left:23.3%">14</span><span class="mk" style="left:41.7%">25</span><span class="mk end" style="left:88.3%">53</span></div></div>
-<div class="trow"><div class="tl">140 Spieler</div><div class="track">
-<div class="seg s1" style="width:23.3%"></div><div class="seg s2" style="left:23.3%;width:18.3%"></div><div class="seg s3" style="left:41.7%;width:45.0%"></div>
-<span class="mk" style="left:23.3%">14</span><span class="mk" style="left:41.7%">25</span><span class="mk end" style="left:86.7%">52</span></div></div>
+    <div class="axis"><span style="left:0%">0</span><span style="left:25%">10</span><span style="left:50%">20</span><span style="left:75%">30</span><span style="left:100%">40 Min.</span></div>
+    <div class="trow"><div class="tl">30 Songs</div><div class="track">
+<div class="seg s1" style="left:0;width:20.0%;opacity:.25"></div><div class="seg range" style="left:20.0%;width:10.0%"></div>
+<span class="rl" style="left:20.0%">8</span><span class="rr" style="left:30.0%">12 Min.</span></div></div>
+<div class="trow"><div class="tl">50 Songs</div><div class="track">
+<div class="seg s1" style="left:0;width:27.5%;opacity:.25"></div><div class="seg range" style="left:27.5%;width:20.0%"></div>
+<span class="rl" style="left:27.5%">11</span><span class="rr" style="left:47.5%">19 Min.</span></div></div>
+<div class="trow"><div class="tl">75 Songs</div><div class="track">
+<div class="seg s1" style="left:0;width:42.5%;opacity:.25"></div><div class="seg range" style="left:42.5%;width:27.5%"></div>
+<span class="rl" style="left:42.5%">17</span><span class="rr" style="left:70.0%">28 Min.</span></div></div>
+<div class="trow"><div class="tl">100 Songs</div><div class="track">
+<div class="seg s1" style="left:0;width:55.0%;opacity:.25"></div><div class="seg range" style="left:55.0%;width:37.5%"></div>
+<span class="rl" style="left:55.0%">22</span><span class="rr" style="left:92.5%">37 Min.</span></div></div>
 
-    <div class="legend"><span><i class="s1"></i>bis 1 Reihe</span><span><i class="s2"></i>bis 2 Reihen</span><span><i class="s3"></i>bis Volle Karte</span></div>
+    <div class="legend"><span><i class="s1" style="opacity:.25"></i>mindestens</span><span><i class="range"></i>Spanne 3×3 → 5×5</span></div>
   </div>
-  <p class="note">Zahlen = typischer erster Gewinner (Median aus 400 simulierten Spielen mit der Prognose der App), bei 50 s pro Song. Die Ziehung läuft über alle drei Ziele weiter.</p>
+  <p class="note">Typischer erster „Volle Karte“-Gewinner (Median aus 300 simulierten Spielen mit der Prognose der App). Kürzeste Variante: 3×3 mit 150 Spielern, längste: 5×5 mit 20 Spielern. Pro Song zusätzlich 5 s Auflösung + 5 s Puffer.</p>
 
   <div class="two">
     <div>
-      <h3 class="h3">Rechnen in 3 Schritten</h3>
-      <ol class="steps">
-        <li><b>Zeit pro Song</b> festlegen: Song-Timer + Auflösung + Puffer. Beispiel: 40 s + 5 s + 5 s = <b>50 s</b>.</li>
-        <li><b>Dauer</b> = Songs × Sekunden ÷ 60. Eine Runde braucht etwa <b>85–90 %</b> der Songliste.</li>
-        <li><b>Songliste</b> für die Wunschdauer (reine Musikzeit): Minuten × 1,35 (bei 50 s). 30 Min. → ca. 40 Songs, 45 Min. → ca. 60 Songs, 55 Min. → ca. 75 Songs.</li>
-      </ol>
-      
+      <h3 class="h3">Minuten pro Runde je Song-Länge</h3>
+      <table class="dur"><tr><th>Songliste</th><th>15 s</th><th>30 s</th><th>45 s</th></tr><tr><td>30 Songs</td><td>8–12</td><td>12–19</td><td>16–26</td></tr><tr><td>50 Songs</td><td>11–19</td><td>18–31</td><td>25–42</td></tr><tr><td>75 Songs</td><td>17–28</td><td>27–45</td><td>38–62</td></tr><tr><td>100 Songs</td><td>22–37</td><td>35–59</td><td>49–82</td></tr></table>
+      <div class="callout"><div class="ic">i</div><p><b>Beispiel 1 Stunde, 3×3:</b> 4 Runden à 50 Songs (je ≈ 12 Min.) plus Ehrungen. <b>5×5</b> erst ab 50 Songs – bei 30 Songs gibt es oft 2–3 Gewinner gleichzeitig.</p></div>
     </div>
     <div>
       <h3 class="h3">Was ihr braucht</h3>
@@ -214,15 +210,14 @@
         <li>Beamer + HDMI-Kabel (ggf. Adapter)</li>
         <li>Lautsprecher, Kabel/Bluetooth getestet</li>
         <li>Spotify-App, angemeldet; <b>Premium empfohlen</b> (keine Werbung zwischen den Songs)</li>
-        <li>Karten: Gäste <b>+ 15 % Reserve</b>, 2 pro A4-Seite</li>
+        <li>Karten: Gäste <b>+ 15 % Reserve</b></li>
         <li>Stifte zum Abstreichen für alle Gäste</li>
         <li>Zettel + Stift zum Mitschreiben (Notfallplan)</li>
         <li>USB-Stick für den Spielstand-Export</li>
-        <li>Preise für 1 Reihe, 2 Reihen, Volle Karte – pro Runde</li>
+        <li>Preise – einer pro Runde</li>
       </ul>
     </div>
   </div>
-  <div class="callout" style="margin-top:5mm"><div class="ic">i</div><p><b>Mehr Spieler</b> bringen den <b>ersten</b> Gewinner nur etwas früher (1 Reihe: 23 → 14 Min.). Die Gesamtdauer bleibt fast gleich. Die App zeigt die Prognose für eure Liste unter der Jetzt-Anzeige.</p></div>
 </section>
 
 <!-- ============ 1. Vorbereiten ============ -->
