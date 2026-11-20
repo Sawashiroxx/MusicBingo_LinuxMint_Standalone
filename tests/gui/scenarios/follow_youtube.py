@@ -1,4 +1,4 @@
-"""E2E: YouTube-Music-Anbindung gegen eine simulierte YouTube-Music-App (privater D-Bus)."""
+"""E2E: YouTube im Browser gegen einen simulierten Firefox-Player (privater D-Bus)."""
 import json
 import subprocess
 import sys
@@ -7,7 +7,7 @@ from common import (MESSAGES, ROOT, TMP, check, forbid_network, patch_dialogs, p
 
 LOG = TMP / "fake.json"
 FAKE = subprocess.Popen([sys.executable, str(ROOT / "tests" / "support" / "fake_player_process.py"), str(LOG),
-                         "ytmusic"], stdout=subprocess.PIPE, text=True)
+                         "youtube"], stdout=subprocess.PIPE, text=True)
 assert FAKE.stdout.readline().strip() == "ready"
 forbid_network()
 patch_dialogs()
@@ -32,20 +32,20 @@ def scenario(w):
     w._generate(None)
     check("Karten erzeugt", len(w.service.game.cards) == 5)
 
-    w.target_buttons["ytmusic"].set_active(True)
-    check("Ziel YouTube Music gesetzt", w.service.playback_target == "ytmusic")
+    w.target_buttons["youtube"].set_active(True)
+    check("Ziel YouTube gesetzt", w.service.playback_target == "youtube")
     w.follow_switch.set_active(True)
-    check("Folgen behält YouTube Music", w.service.playback_target == "ytmusic")
-    check("mit YouTube-Music-App verbunden", w.player is not None and w.player.info.is_youtube_music_app)
+    check("Folgen behält YouTube", w.service.playback_target == "youtube")
+    check("mit Browser verbunden", w.player is not None and w.player.info.is_browser)
     drawn = lambda: [s.artist for s in w.service.game.caller.drawn]  # noqa: E731
     check("laufender Titel automatisch gezogen", wait(lambda: drawn() == ["Wham!"]))
-    check("Video-Link aus YouTube Music erkannt",
+    check("Video-Link aus dem Browser erkannt",
           w.now_playing and w.now_playing.url == "https://www.youtube.com/watch?v=E8gmARGvPlI")
-    check("Quelle zeigt den Player", "YouTube Music" in w.audio_status.get_text())
+    check("Quelle zeigt den Player", "Mozilla Firefox" in w.audio_status.get_text())
 
     w._draw_next()
-    check("Weiter → nächster Titel in der App", wait(lambda: drawn() == ["Wham!", "Mariah Carey"]))
-    check("Next an die App gesendet", wait(lambda: any(call[0] == "Next" for call in state()["calls"])))
+    check("Weiter → nächstes Video im Browser", wait(lambda: drawn() == ["Wham!", "Mariah Carey"]))
+    check("Next an den Browser gesendet", wait(lambda: any(call[0] == "Next" for call in state()["calls"])))
     w._draw_next()
     check("fremder Titel → Warnung", wait(lambda: w.warning_revealer.get_reveal_child())
           and "Highway to Hell" in w.warning_label.get_text())
@@ -60,7 +60,7 @@ def scenario(w):
     check("kein Next nach dem Markieren", nexts() == before)
 
     saved = json.loads((TMP / "data" / "musik-bingo" / "spielstand.json").read_text())
-    check("Ziel YouTube Music gespeichert", saved["settings"]["playback_target"] == "ytmusic")
+    check("Ziel YouTube gespeichert", saved["settings"]["playback_target"] == "youtube")
 
     w.follow_switch.set_active(False)
     check("Folgen aus trennt Player", w.player is None)
@@ -72,15 +72,14 @@ def scenario(w):
     caller.order[caller.index] = Song("Last Christmas", "Wham!", "https://youtu.be/E8gmARGvPlI")
     w._render_caller()
     w._play_audio(None)
-    check("mit Link: exakter Titel in YouTube Music",
-          opened == ["https://music.youtube.com/watch?v=E8gmARGvPlI"])
+    check("mit Link: exaktes Video", opened == ["https://www.youtube.com/watch?v=E8gmARGvPlI"])
     caller.order[caller.index] = Song("Feliz Navidad", "José Feliciano")
     w._play_audio(None)
-    check("ohne Link: YouTube-Music-Suche",
-          opened[-1] == "https://music.youtube.com/search?q=Jos%C3%A9%20Feliciano%20Feliz%20Navidad")
+    check("ohne Link: YouTube-Suche",
+          opened[-1] == "https://www.youtube.com/results?search_query=Jos%C3%A9%20Feliciano%20Feliz%20Navidad")
 
     w.target_buttons["spotify"].set_active(True)
-    w.target_buttons["ytmusic"].set_active(True)
+    w.target_buttons["youtube"].set_active(True)
     w.follow_switch.set_active(True)
     check("erneut verbunden", w.player is not None)
     w.auto_play_check.set_active(True)
@@ -92,7 +91,7 @@ def scenario(w):
     FAKE.wait()
     check("App beendet → Folgen aus, kein Absturz",
           wait(lambda: not w.follow_switch.get_active() and w.player is None, 6))
-    check("Warnung an die Spielleitung", "YouTube Music wurde beendet" in MESSAGES)
+    check("Warnung an die Spielleitung", "Mozilla Firefox wurde beendet" in MESSAGES)
     drawn_after = list(w.service.game.caller.drawn)
     opened_after = len(opened)
     pump(4.0)  # doppelt so lang wie der Timer

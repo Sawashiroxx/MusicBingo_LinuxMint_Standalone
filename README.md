@@ -14,8 +14,8 @@ Musik-Bingo für private Feiern als native Desktop-App (Python + GTK 3).
 - **Karten:** 3×3, 4×4 oder 5×5, Freifeld, Diagonalen, bis 500 verschiedene Karten, Druck/PDF
 - **Songlisten:** Playlist-Import (Spotify-CSV, M3U, YouTube-Titel), Zufallsmix aus Charts & Weihnachtsliedern (offline, Stand KW 47/2026)
 - **Bingo = Playlist:** Export als Playlist, Abgleich Karten ↔ Playlist
-- **Wiedergabe:** frei wählbar – lokale Dateien, Spotify (Desktop-App), YouTube (Browser) oder YouTube Music (Desktop-App oder Browser, z. B. mit Premium)
-- **Player folgen:** Playlist läuft in Spotify, YouTube oder YouTube Music, die App zieht den laufenden Song automatisch und warnt bei fremden Titeln
+- **Wiedergabe:** lokale Dateien, Spotify (Desktop-App, Titel startet automatisch) oder YouTube im Browser
+- **Player folgen:** Playlist läuft in Spotify oder YouTube, die App zieht den laufenden Song automatisch und warnt bei fremden Titeln
 - **Gewinnziel pro Runde:** 1 Reihe, 2 Reihen oder volle Karte – mit Spielprognose und Gewinngarantie
 - **Bingo prüfen:** zeigt die Karte mit gezogenen Feldern und Gewinnlinie, trägt Gewinner ein – auch *ohne Kartennummer*: Songs der Gewinnreihe anhaken, die App findet die Karte
 - **Beamer-Ansicht:** zweites Fenster für die Gäste, Titel erst nach Aufdecken (T), Countdown, BINGO-Banner
@@ -68,12 +68,11 @@ Spätestens nach dem letzten Song hat jede Karte „Volle Karte“ – es gibt a
 
 **Tipp für Spotify:** Playlist in Spotify anlegen, mit [Exportify](https://exportify.app) als CSV exportieren, dann *Playlist importieren*. So stehen genau die Playlist-Titel mit Spotify-Links auf den Karten.
 
-**Tipp für YouTube Music:** Oben *Wiedergabe über → YouTube Music* wählen. Playlist in YouTube Music abspielen – am besten in einer Desktop-App mit MPRIS (z. B. [th-ch „YouTube Music“](https://github.com/th-ch/youtube-music), mit Premium angemeldet), sonst auf music.youtube.com im Browser. Dann *Vom Player einlesen* → Karten → *Player folgen*. Ohne Folgen öffnet *Abspielen* den Titel (oder die Suche) auf music.youtube.com.
 
 ## Datenschutz
 
 - Kein Netzwerkzugriff durch die App, keine Telemetrie
-- Spotify/YouTube/YouTube Music nur lokal über MPRIS (D-Bus) oder per Klick im Browser
+- Spotify/YouTube nur lokal über MPRIS (D-Bus) oder per Klick im Browser
 - Spielstand nur lokal: `~/.local/share/musik-bingo/spielstand.json`
 - Vor neuen Karten oder einem Import wird automatisch gesichert (`…/musik-bingo/sicherungen/`, die letzten 10) – gedruckte Karten bleiben prüfbar
 

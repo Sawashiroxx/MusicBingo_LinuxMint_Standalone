@@ -26,8 +26,6 @@ MPRIS_PATH = "/org/mpris/MediaPlayer2"
 ROOT_IFACE = "org.mpris.MediaPlayer2"
 PLAYER_IFACE = "org.mpris.MediaPlayer2.Player"
 CALL_TIMEOUT_MS = 1500
-# Desktop-Apps für YouTube Music (z. B. th-ch „YouTube Music“, ytmdesktop)
-YOUTUBE_MUSIC_HINTS = ("youtube", "ytmdesktop", "ytmusic")
 BROWSER_HINTS = ("firefox", "chrom", "brave", "vivaldi", "opera", "edge", "epiphany", "librewolf", "plasma-browser")
 
 
@@ -44,11 +42,6 @@ class PlayerInfo:
     def is_browser(self) -> bool:
         text = f"{self.bus_name} {self.identity}".casefold()
         return any(hint in text for hint in BROWSER_HINTS)
-
-    @property
-    def is_youtube_music_app(self) -> bool:
-        text = f"{self.bus_name} {self.identity}".casefold()
-        return not self.is_browser and any(hint in text for hint in YOUTUBE_MUSIC_HINTS)
 
 
 def session_bus() -> Gio.DBusConnection | None:
@@ -145,10 +138,6 @@ def choose_player(players: list[PlayerInfo], preferred: str = "", target: str = 
         candidates = [p for p in players if p.is_spotify]
     elif target == "youtube":
         candidates = [p for p in players if p.is_browser]
-    elif target == "ytmusic":
-        # YouTube-Music-App bevorzugt, sonst ein Browser (music.youtube.com im Tab)
-        candidates = sorted((p for p in players if p.is_youtube_music_app or p.is_browser),
-                            key=lambda p: not p.is_youtube_music_app)
     else:
         candidates = sorted(players, key=lambda p: not p.is_spotify)
     for player in candidates:

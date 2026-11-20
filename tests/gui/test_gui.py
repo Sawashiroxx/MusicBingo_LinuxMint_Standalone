@@ -47,8 +47,8 @@ class GuiTests(unittest.TestCase):
     def test_spotify_open_uri_fallback_uses_web_player(self):
         self.scenario("spotify_fallback.py")
 
-    def test_follow_youtube_music_end_to_end(self):
-        self.scenario("follow_ytmusic.py")
+    def test_follow_youtube_in_browser_end_to_end(self):
+        self.scenario("follow_youtube.py")
 
     def test_edge_cases(self):
         for mode in ("broken", "deep", "defaults", "empty", "big"):

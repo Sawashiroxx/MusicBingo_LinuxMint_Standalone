@@ -1,6 +1,6 @@
 """Startet einen simulierten MPRIS-Player als eigenen Prozess (für E2E-Tests).
 
-Aufruf: python3 fake_player_process.py <statusdatei> [spotify|ytmusic|spotify-ohne-openuri]
+Aufruf: python3 fake_player_process.py <statusdatei> [spotify|youtube|spotify-ohne-openuri]
 Schreibt laufend {"calls": [...], "pos": n} in die Statusdatei.
 """
 import json
@@ -11,13 +11,13 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from gi.repository import GLib  # noqa: E402
 
-from tests.support.fake_mpris import TRACKS, YTMUSIC_TRACKS, FakePlayer  # noqa: E402
+from tests.support.fake_mpris import TRACKS, YOUTUBE_TRACKS, FakePlayer  # noqa: E402
 
 EXTRA = {"mpris:trackid": "/com/spotify/track/7vQbuQcyTflfCIOu3Uzzya", "xesam:title": "Highway to Hell",
          "xesam:artist": ["AC/DC"]}
 KINDS = {
     "spotify": ("org.mpris.MediaPlayer2.spotify", "Spotify", TRACKS + [EXTRA]),
-    "ytmusic": ("org.mpris.MediaPlayer2.youtube-music", "YouTube Music", YTMUSIC_TRACKS),
+    "youtube": ("org.mpris.MediaPlayer2.firefox.instance_1_23", "Mozilla Firefox", YOUTUBE_TRACKS),
 }
 KINDS["spotify-ohne-openuri"] = KINDS["spotify"]
 

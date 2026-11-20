@@ -14,7 +14,9 @@ from musik_bingo.domain.song_list import format_songs, parse_songs
 # Obergrenze pro Runde – identisch mit der Prüfung beim Laden, sonst ließe sich ein
 # Spielstand speichern, der beim nächsten Start nicht mehr geladen werden kann.
 MAX_GAME_SONGS = 2000
-PLAYBACK_TARGETS = ("lokal", "spotify", "youtube", "ytmusic")
+PLAYBACK_TARGETS = ("lokal", "spotify", "youtube")
+# Spielstände aus 2.4.x: YouTube Music gibt es nicht mehr → normales YouTube
+LEGACY_TARGETS = {"ytmusic": "youtube"}
 
 
 @dataclass
@@ -40,9 +42,9 @@ class GameService:
         self.diagonal_wins = self.game.diagonal_wins
         self.auto_play = False
         self.audio_files: dict[str, str] = {}
-        # Wo wird ein gezogener Song abgespielt? lokal (GStreamer), spotify, youtube, ytmusic (YouTube Music)
+        # Wo wird ein gezogener Song abgespielt? lokal (GStreamer), spotify oder youtube
         self.playback_target = "lokal"
-        # Folgen-Modus: Der Player (Spotify/YouTube/YouTube Music) spielt die Playlist,
+        # Folgen-Modus: Der Player (Spotify/YouTube) spielt die Playlist,
         # die App zieht automatisch den gerade laufenden Song.
         self.follow_player = False
         self.player_name = ""
@@ -381,6 +383,8 @@ class GameService:
             raise ValueError("Ungültige Autoplay-Einstellung im Spielstand.")
         service.auto_play = prepared_auto_play
         playback_target = settings.get("playback_target", "lokal")
+        if isinstance(playback_target, str):
+            playback_target = LEGACY_TARGETS.get(playback_target, playback_target)
         if playback_target not in PLAYBACK_TARGETS:
             raise ValueError("Ungültiges Wiedergabeziel im Spielstand.")
         service.playback_target = playback_target

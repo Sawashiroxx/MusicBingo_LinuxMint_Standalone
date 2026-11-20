@@ -14,14 +14,15 @@ TRACKS = [
      "xesam:artist": ["Chris Rea"]},
 ]
 
-# YouTube-Music-Desktop-App: keine Spotify-IDs, dafür xesam:url; Premium → keine Werbung
-YTMUSIC_TRACKS = [
-    {"mpris:trackid": "/org/mpris/MediaPlayer2/Track/1", "xesam:title": "Last Christmas", "xesam:artist": ["Wham!"],
-     "xesam:url": "https://music.youtube.com/watch?v=E8gmARGvPlI"},
-    {"mpris:trackid": "/org/mpris/MediaPlayer2/Track/2", "xesam:title": "All I Want for Christmas Is You",
-     "xesam:artist": ["Mariah Carey"], "xesam:url": "https://music.youtube.com/watch?v=aAkMkVFwAoo"},
-    {"mpris:trackid": "/org/mpris/MediaPlayer2/Track/3", "xesam:title": "Highway to Hell",
-     "xesam:artist": ["AC/DC"], "xesam:url": "https://music.youtube.com/watch?v=l482T0yNkeo"},
+# YouTube im Browser: Titel „Interpret - Titel (Official Video)“, Kanal als Interpret, Video-URL
+YOUTUBE_TRACKS = [
+    {"mpris:trackid": "/org/mpris/MediaPlayer2/firefox", "xesam:title": "Wham! - Last Christmas (Official Video)",
+     "xesam:artist": ["WhamVEVO"], "xesam:url": "https://www.youtube.com/watch?v=E8gmARGvPlI&list=PL1"},
+    {"mpris:trackid": "/org/mpris/MediaPlayer2/firefox",
+     "xesam:title": "Mariah Carey - All I Want for Christmas Is You (Official Video)",
+     "xesam:artist": ["MariahCareyVEVO"], "xesam:url": "https://www.youtube.com/watch?v=aAkMkVFwAoo&list=PL1"},
+    {"mpris:trackid": "/org/mpris/MediaPlayer2/firefox", "xesam:title": "AC/DC - Highway to Hell (Official Video)",
+     "xesam:artist": ["acdcVEVO"], "xesam:url": "https://www.youtube.com/watch?v=l482T0yNkeo&list=PL1"},
 ]
 
 XML = """

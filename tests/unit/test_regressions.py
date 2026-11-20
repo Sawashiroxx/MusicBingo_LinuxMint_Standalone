@@ -123,7 +123,7 @@ if __name__ == "__main__":
 class FableReview24Tests(unittest.TestCase):
     """Befunde der unabhängigen Prüfung von v2.4 (Fable)."""
 
-    def test_youtube_music_titles_with_dash_stay_intact(self):
+    def test_titles_with_dash_stay_intact_for_clean_players(self):
         tracks = [PlayingTrack("Stille Nacht - Heilige Nacht", "Helene Fischer",
                                "https://music.youtube.com/watch?v=aAkMkVFwAoo"),
                   PlayingTrack("Do They Know It's Christmas? - 1984 Version", "Band Aid",
@@ -132,7 +132,7 @@ class FableReview24Tests(unittest.TestCase):
         self.assertEqual([(s.title, s.artist) for s in songs],
                          [("Stille Nacht - Heilige Nacht", "Helene Fischer"),
                           ("Do They Know It's Christmas?", "Band Aid")])
-        # YouTube-Music-App ohne URL: Felder sind trotzdem sauber getrennt
+        # Spotify-App ohne URL: Felder sind sauber getrennt
         app = from_player_tracks([PlayingTrack("Stille Nacht - Heilige Nacht", "Helene Fischer")],
                                  clean_metadata=True).songs[0]
         self.assertEqual((app.title, app.artist), ("Stille Nacht - Heilige Nacht", "Helene Fischer"))

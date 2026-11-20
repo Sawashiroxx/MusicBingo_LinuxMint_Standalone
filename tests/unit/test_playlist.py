@@ -7,8 +7,6 @@ from musik_bingo.domain.catalog import parse_catalog, random_mix, unique_songs
 from musik_bingo.domain.links import (
     normalize_link,
     spotify_search_uri,
-    youtube_music_search_url,
-    youtube_music_url,
     youtube_search_url,
 )
 from musik_bingo.domain.matching import PlayingTrack, SongMatcher, compare_with_playlist
@@ -40,16 +38,6 @@ class LinkTests(unittest.TestCase):
             normalize_link("https://music.youtube.com/watch?v=E8gmARGvPlI&list=PL1"),
             "https://www.youtube.com/watch?v=E8gmARGvPlI",
         )
-
-    def test_youtube_music_urls(self):
-        link = normalize_link("https://music.youtube.com/watch?v=E8gmARGvPlI&si=abc")
-        self.assertEqual(youtube_music_url(link), "https://music.youtube.com/watch?v=E8gmARGvPlI")
-        with self.assertRaises(ValueError):
-            youtube_music_url("spotify:track:4uLU6hMCjMI75M1A2tKUQC")
-        self.assertEqual(youtube_music_search_url("Feliz Navidad", "José Feliciano"),
-                         "https://music.youtube.com/search?q=Jos%C3%A9%20Feliciano%20Feliz%20Navidad")
-        self.assertEqual(youtube_music_search_url("A/B&C=D#E", ""),
-                         "https://music.youtube.com/search?q=A%2FB%26C%3DD%23E")
 
     def test_unknown_or_broken_links_are_rejected(self):
         for value in ("", "http://example.com/track", "spotify:track:kurz", "javascript:alert(1)",
@@ -259,13 +247,15 @@ class FollowModeTests(unittest.TestCase):
         self.assertTrue(caller.draw_song(Song("C")))  # nach Undo wieder ziehbar
         self.assertTrue(caller.is_drawn(Song("c")))
 
-    def test_youtube_music_target_round_trip(self):
+    def test_saved_youtube_music_target_becomes_youtube(self):
+        """Spielstände aus 2.4.x mit „YouTube Music“ laden weiter – als normales YouTube."""
         service = GameService()
-        service.set_playback_target("ytmusic")
-        service.player_name = "org.mpris.MediaPlayer2.youtube-music"
-        restored = GameService.from_dict(service.to_dict())
-        self.assertEqual(restored.playback_target, "ytmusic")
-        self.assertEqual(restored.player_name, "org.mpris.MediaPlayer2.youtube-music")
+        service.set_playback_target("youtube")
+        data = service.to_dict()
+        data["settings"]["playback_target"] = "ytmusic"
+        self.assertEqual(GameService.from_dict(data).playback_target, "youtube")
+        with self.assertRaises(ValueError):
+            service.set_playback_target("ytmusic")
 
     def test_follow_settings_round_trip_and_validation(self):
         service = GameService()

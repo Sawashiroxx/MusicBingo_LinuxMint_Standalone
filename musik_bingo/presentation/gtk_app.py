@@ -42,8 +42,8 @@ from musik_bingo.paths import CATALOG_DIR, DEFAULT_SONGS as DEFAULT_SONGS_PATH, 
 
 DEFAULT_SONGS = DEFAULT_SONGS_PATH.read_text(encoding="utf-8")
 PAGES = ("songs", "cards", "game")
-TARGET_LABELS = {"lokal": "Lokale Dateien", "spotify": "Spotify", "youtube": "YouTube", "ytmusic": "YouTube Music"}
-EXTERNAL_TARGETS = ("spotify", "youtube", "ytmusic")
+TARGET_LABELS = {"lokal": "Lokale Dateien", "spotify": "Spotify", "youtube": "YouTube"}
+EXTERNAL_TARGETS = ("spotify", "youtube")
 NAVIGATION_KEYS = (Gdk.KEY_Tab, Gdk.KEY_ISO_Left_Tab, Gdk.KEY_Up, Gdk.KEY_Down, Gdk.KEY_Left, Gdk.KEY_Right)
 
 
@@ -469,7 +469,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         targets = add_class(Gtk.Box(spacing=0), "linked")
         self.target_buttons: dict[str, Gtk.RadioButton] = {}
         group = None
-        for key in ("lokal", "spotify", "youtube", "ytmusic"):
+        for key in ("lokal", "spotify", "youtube"):
             button = Gtk.RadioButton.new_with_label_from_widget(group, TARGET_LABELS[key])
             button.set_mode(False)
             group = group or button
@@ -485,7 +485,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         follow_box.pack_start(self.follow_switch, False, False, 0)
         follow_label = label("Player folgen")
         follow_label.set_tooltip_text(
-            "Die Playlist läuft in Spotify, YouTube oder YouTube Music (gerne im Zufallsmodus). Die App zieht automatisch "
+            "Die Playlist läuft in Spotify oder YouTube (gerne im Zufallsmodus). Die App zieht automatisch "
             "den Song, der gerade läuft, und warnt, wenn er nicht auf den Karten steht."
         )
         follow_box.pack_start(follow_label, False, False, 0)
@@ -859,8 +859,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         if not players:
             dialogs.message(
                 self, Gtk.MessageType.INFO, "Kein Player gefunden",
-                "Starte zuerst Spotify (Desktop-App), die YouTube-Music-App oder spiele die Playlist im Browser ab "
-                "(youtube.com bzw. music.youtube.com). "
+                "Starte zuerst Spotify (Desktop-App) oder spiele die YouTube-Playlist im Browser ab. "
                 "Dann erneut versuchen.")
             return
         dialog, content, _ok = dialogs.base_dialog(self, "Playlist vom Player einlesen", "Einlesen starten", 560)
@@ -918,10 +917,9 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
                 dialogs.message(self, Gtk.MessageType.INFO, "Nichts übernommen",
                                 f"{reason}\n\nBis dahin gelesen: {len(tracks)} Titel." if tracks else reason)
                 return
-            # Spotify und YouTube Music (App oder Browser-Tab mit music.youtube.com) liefern Titel und
-            # Interpret getrennt – nur YouTube-Videos im Browser brauchen das Zerlegen „Interpret - Titel“.
-            clean = (info.is_spotify or info.is_youtube_music_app
-                     or (info.is_browser and self.service.playback_target == "ytmusic"))
+            # Spotify liefert Titel und Interpret getrennt – nur YouTube-Videos im Browser brauchen das
+            # Zerlegen „Interpret - Titel“.
+            clean = info.is_spotify
             cleaned = from_player_tracks(tracks, clean_metadata=clean).songs
             if not cleaned:
                 dialogs.message(self, Gtk.MessageType.WARNING, "Keine Titel eingelesen", reason)
@@ -1635,10 +1633,6 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             elif target == "spotify":
                 detail = ("Spotify-Desktop-App nicht gestartet – Titel werden über "
                           + ("die Spotify-App geöffnet." if self.spotify_scheme else "den Spotify-Webplayer im Browser geöffnet."))
-            elif target == "ytmusic":
-                # Ohne „Player folgen“ wird kein Player angesteuert – also nichts über erkannte Player behaupten.
-                detail = ("„Abspielen“ öffnet den Titel auf music.youtube.com im Standardbrowser (dort mit Premium "
-                          "anmelden). Für automatisches Mitziehen „Player folgen“ einschalten.")
             else:
                 detail = ("„Abspielen“ öffnet das Video im Standardbrowser. Für automatisches Mitziehen "
                           "„Player folgen“ einschalten.")
@@ -1773,8 +1767,6 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             return info.is_spotify
         if target == "youtube":
             return info.is_browser
-        if target == "ytmusic":
-            return info.is_youtube_music_app or info.is_browser
         return True
 
     def _connect_player(self, quiet: bool) -> bool:
@@ -1787,8 +1779,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         info = mpris.choose_player(players, self.service.player_name, target)
         if info is None:
             if not quiet:
-                what = {"spotify": "Spotify (Desktop-App)", "youtube": "YouTube im Browser",
-                        "ytmusic": "die YouTube-Music-App oder music.youtube.com im Browser"}.get(target, "den Player")
+                what = {"spotify": "Spotify (Desktop-App)", "youtube": "YouTube im Browser"}.get(target, "den Player")
                 dialogs.message(self, Gtk.MessageType.INFO, "Kein passender Player gefunden",
                                 f"Starte {what} und die Playlist, dann erneut einschalten."
                                 + (f"\n\nGefunden wurden: {', '.join(p.identity for p in players)}" if players else ""))
@@ -2154,28 +2145,18 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
                 "Vor neuen Karten oder einem Import wird automatisch gesichert: "
                 "~/.local/share/musik-bingo/sicherungen/ (die letzten 10). Wiederherstellen über "
                 "Menü → Spielstand importieren.",
-                "Spotify/YouTube/YouTube Music werden nur über die lokale Player-Schnittstelle (MPRIS) gesteuert oder per "
+                "Spotify/YouTube werden nur über die lokale Player-Schnittstelle (MPRIS) gesteuert oder per "
                 "Klick im Browser geöffnet – wie ein selbst angeklickter Link.",
                 "Chart- und Weihnachtslisten sind fest in der App gespeichert (Stand KW 47/2026).",
             ]),
             ("Bingo = Playlist", [
                 "Weg A: Playlist in Spotify bauen → als CSV exportieren (z. B. Exportify) → „Playlist importieren“.",
-                "Weg B: Playlist in Spotify/YouTube/YouTube Music starten → „Vom Player einlesen“.",
+                "Weg B: Playlist in Spotify/YouTube starten → „Vom Player einlesen“.",
                 "Weg C: Zufallsmix/Liste hier bauen → „Als Playlist exportieren“ (Text) → per TuneMyMusic o. Ä. "
-                "in Spotify/YouTube Music anlegen.",
+                "in Spotify anlegen.",
                 "Vor dem Spiel: „Mit Playlist abgleichen“ zeigt fehlende oder überzählige Titel.",
                 "Im Spiel: „Player folgen“ – die Playlist läuft im Player, die App zieht automatisch mit und "
                 "warnt bei Titeln, die nicht auf den Karten stehen.",
-            ]),
-            ("YouTube Music (Premium)", [
-                "Oben „Wiedergabe über: YouTube Music“ wählen.",
-                "Empfohlen: Playlist in YouTube Music bauen und abspielen – in der YouTube-Music-Desktop-App "
-                "(z. B. th-ch „YouTube Music“, mit Premium angemeldet) oder auf music.youtube.com im Browser.",
-                "Dann „Vom Player einlesen“ → Karten erzeugen → „Player folgen“ einschalten.",
-                "Ohne Folgen: „Abspielen“ öffnet den gezogenen Titel (oder die Suche) auf music.youtube.com "
-                "im Standardbrowser.",
-                "Ob der Browser „nächster Titel“ an YouTube Music weitergibt, hängt vom Browser ab – im Zweifel "
-                "die Desktop-App nehmen.",
             ]),
             ("Tastatur", ["Leertaste: nächster Song", "Rücktaste: Ziehung zurücknehmen",
                           "T: Titel zeigen/verbergen (auch auf dem Beamer)", "P: Song-Timer pausieren/fortsetzen",

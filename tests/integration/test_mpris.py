@@ -51,30 +51,8 @@ class MprisTests(unittest.TestCase):
         self.assertIsNone(mpris.choose_player([], target="spotify"))
         self.assertIsNone(mpris.choose_player([p for p in players if not p.is_spotify], target="spotify"))
 
-    def test_youtube_music_prefers_app_then_browser(self):
-        self.fake()
-        self.fake("org.mpris.MediaPlayer2.firefox.instance_1_23", identity="Mozilla Firefox")
-        self.fake("org.mpris.MediaPlayer2.youtube-music", identity="YouTube Music")
-        players = mpris.list_players(self.client)
-        by_name = {p.identity: p for p in players}
-        self.assertTrue(by_name["YouTube Music"].is_youtube_music_app)
-        self.assertFalse(by_name["Mozilla Firefox"].is_youtube_music_app)
-        self.assertFalse(by_name["Spotify"].is_youtube_music_app)
-        self.assertEqual(mpris.choose_player(players, target="ytmusic").identity, "YouTube Music")
-        without_app = [p for p in players if not p.is_youtube_music_app]
-        self.assertEqual(mpris.choose_player(without_app, target="ytmusic").identity, "Mozilla Firefox")
-        # gespeicherter Player hat Vorrang, wenn er zum Ziel passt
-        browser = by_name["Mozilla Firefox"].bus_name
-        self.assertEqual(mpris.choose_player(players, browser, "ytmusic").bus_name, browser)
-        # Spotify passt nie zu YouTube Music
-        self.assertIsNone(mpris.choose_player([by_name["Spotify"]], target="ytmusic"))
-        # Ein Browser-Tab mit „YouTube“ im Namen gilt als Browser, nicht als App
-        tab = mpris.PlayerInfo("org.mpris.MediaPlayer2.chromium.instance42", "Chromium – YouTube Music")
-        self.assertTrue(tab.is_browser)
-        self.assertFalse(tab.is_youtube_music_app)
-
-    def test_youtube_music_track_link_is_normalized(self):
-        self.fake("org.mpris.MediaPlayer2.youtube-music", identity="YouTube Music", tracks=[
+    def test_music_youtube_track_link_is_normalized(self):
+        self.fake("org.mpris.MediaPlayer2.chromium.instance42", identity="Chromium", tracks=[
             {"mpris:trackid": "/org/mpris/MediaPlayer2/Track/1", "xesam:title": "Last Christmas",
              "xesam:artist": ["Wham!"], "xesam:url": "https://music.youtube.com/watch?v=E8gmARGvPlI&list=RDAMVM"}])
         info = mpris.list_players(self.client)[0]
@@ -266,16 +244,7 @@ class LaunchPlanTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             plan_launch(Song("A"), "lokal", False, False)
 
-    def test_youtube_music_paths(self):
-        exact = plan_launch(Song("A", "B", "https://youtu.be/E8gmARGvPlI"), "ytmusic", False, False)
-        self.assertEqual((exact.method, exact.uri, exact.exact),
-                         ("uri", "https://music.youtube.com/watch?v=E8gmARGvPlI", True))
-        search = plan_launch(Song("Last Christmas", "Wham!"), "ytmusic", True, True)
-        self.assertEqual((search.uri, search.exact),
-                         ("https://music.youtube.com/search?q=Wham%21%20Last%20Christmas", False))
-        # Spotify-Link hilft YouTube Music nicht → Suche
-        spotify = Song("A", "B", "spotify:track:4uLU6hMCjMI75M1A2tKUQC")
-        self.assertIn("music.youtube.com/search?q=", plan_launch(spotify, "ytmusic", True, True).uri)
+
 
 
 if __name__ == "__main__":
