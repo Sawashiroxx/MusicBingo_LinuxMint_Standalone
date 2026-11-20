@@ -9,8 +9,10 @@ Stand: 20.11.2026 (v2.5.1) · Umgebung: Ubuntu 24.04 (= Basis Linux Mint 22), Py
 | Unit (Gewinngarantie, Prognose, Abend-Logik, Timer, Songliste-Fuzzing mit 40 000 Zufallsfällen, Kartensuche, Spotify-Links, Spotify-Prüfliste, CSV ohne Raten, ungültige Zeichen im Spielstand) | 158 | ✅ |
 | Integration (Spotify-/YouTube-Simulation inkl. hängendem, verzögertem und umverknüpftem Spotify, Abspiel-Kontrolle, GStreamer-Netzwerksperre, Druck, Installer, Update-Skript, Sicherungen, Release-Bau) | 79 | ✅ |
 | Sicherheit (u. a. Windows-/UTF-16-Dateien, präparierte Umleitungsdateien ohne Netz) | 21 | ✅ |
-| GUI/E2E unter Xvfb (Gesamtablauf, Abend-Funktionen, Spotify-Abspielen in 11 Varianten, Spotify-Links, YouTube im Browser, echte Tastendrücke, Prüfen ohne Kartennummer, Grenzfälle, Kontrast, Fensterklasse, Mindestgröße 1366×768, Screenshots) | 13 | ✅ |
+| GUI/E2E unter Xvfb (Gesamtablauf, Abend-Funktionen, Spotify-Abspielen in 11 Varianten, Spotify-Links, YouTube im Browser, echte Tastendrücke, Prüfen ohne Kartennummer, Grenzfälle, Kontrast, Fensterklasse, Mindestgröße 1366×768, Screenshots; „wie am Abend“ auf 1366×768 mit echten Dialogen, gehaltenen Tasten, Mausklicks und Speicherfehler) | 14 | ✅ |
 | ruff (Fehler, Bugs, bandit-Sicherheitsregeln), shellcheck | – | ✅ |
+
+In der CI ist ein fehlendes GUI-Werkzeug (xvfb-run, xdotool, xprop …) ein Fehler, kein Überspringen.
 
 ## Gewinngarantie (140 Gäste)
 

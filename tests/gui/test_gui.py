@@ -12,13 +12,26 @@ import unittest
 from pathlib import Path
 
 SCENARIOS = Path(__file__).resolve().parent / "scenarios"
-TOOLS = shutil.which("xvfb-run") and shutil.which("dbus-run-session")
+# In der CI (GitHub setzt CI=true) ist ein fehlendes Werkzeug ein Fehler, kein stilles Überspringen:
+# Sonst liefe die Pipeline grün, obwohl die echten Tastendruck- und Dialogtests nie gelaufen sind.
+IN_CI = os.environ.get("CI") == "true"
 
 
-@unittest.skipUnless(TOOLS, "xvfb-run und dbus-run-session werden für GUI-Tests benötigt")
+def require(test: unittest.TestCase, *tools: str) -> None:
+    missing = [tool for tool in tools if not shutil.which(tool)]
+    if missing:
+        reason = f"Werkzeug fehlt: {', '.join(missing)}"
+        if IN_CI:
+            test.fail(reason + " – in der CI muss es installiert sein")
+        test.skipTest(reason)
+
+
 class GuiTests(unittest.TestCase):
-    def scenario(self, name: str, *args: str, timeout: int = 180) -> str:
-        command = ["dbus-run-session", "--", "xvfb-run", "-a", "-s", "-screen 0 1600x1000x24",
+    def setUp(self):
+        require(self, "xvfb-run", "dbus-run-session")
+
+    def scenario(self, name: str, *args: str, timeout: int = 180, screen: str = "1600x1000") -> str:
+        command = ["dbus-run-session", "--", "xvfb-run", "-a", "-s", f"-screen 0 {screen}x24",
                    sys.executable, str(SCENARIOS / name), *args]
         result = subprocess.run(command, capture_output=True, text=True, timeout=timeout, cwd=SCENARIOS)
         output = result.stdout + "\n" + "\n".join(
@@ -40,10 +53,15 @@ class GuiTests(unittest.TestCase):
     def test_bingo_check_without_card_number(self):
         self.scenario("ohne_nummer.py")
 
-    @unittest.skipUnless(shutil.which("xdotool"), "xdotool fehlt – echte Tastendrücke nicht möglich (CI installiert es)")
     def test_shortcuts_with_real_keystrokes(self):
         """Regression: Leertaste/T wirkten mit echten Tastendrücken nicht (nur im Direktaufruf)."""
+        require(self, "xdotool")
         self.scenario("tasten.py")
+
+    def test_evening_on_laptop_with_real_dialogs(self):
+        """„Wie am Abend“: 1366×768, echte Dialoge, gehaltene Tasten, Mausklicks, Speicherfehler."""
+        require(self, "xdotool")
+        self.scenario("streng_1366.py", screen="1366x768")
 
     def test_spotify_open_uri_fallback_uses_web_player(self):
         self.scenario("spotify_fallback.py")
@@ -68,9 +86,9 @@ class GuiTests(unittest.TestCase):
             with self.subTest(mode=mode):
                 self.scenario("edge_cases.py", mode)
 
-    @unittest.skipUnless(shutil.which("xprop"), "xprop (x11-utils) fehlt")
     def test_window_class_matches_desktop_entry(self):
         """Die Taskleiste ordnet das Fenster nur bei passender WM_CLASS dem Menüeintrag zu."""
+        require(self, "xprop")
         self.scenario("window_class.py")
 
     def test_table_text_is_readable_in_both_themes(self):
