@@ -43,7 +43,7 @@ def scenario(w):
     minimum = w.get_preferred_width()[0]
     print(f"Mindestbreite Spielleitung: {minimum}px")
     # Regression: vier Wiedergabeziele in einer Zeile machten das Fenster breiter als 1366er-Bildschirme
-    check(f"{THEME}: Spielleitung passt auf 1366-px-Bildschirme (mit Rahmen)", minimum <= 1320)
+    check(f"{THEME}: Spielleitung ist schmal genug für 1366-px-Bildschirme (mit Rahmen)", minimum <= 1320)
     caller = w.service.game.caller
     card = w.service.game.cards[0]
     for song in card.songs[:5]:
@@ -66,6 +66,27 @@ def scenario(w):
     dialog_shot("dialog-bingo", lambda: dialogs.bingo_result_dialog(
         w, card, 1, "Gast", 5, True, {s.key for s in caller.drawn}, w.service.check_bingo(1),
         winning_cells(card, game.size, game.free_space, caller.drawn, False)))
+    check_minimum_size(w)
+
+
+def check_minimum_size(w):
+    """Regression: Die Songliste erzwang ~960 px Fensterhöhe – auf 1366×768-Laptops ragte das Fenster
+    unten aus dem Bildschirm. Jede Seite muss mit jedem Wiedergabeziel in 1320×700 passen
+    (Platz für Rahmen, Titelleiste und Panel)."""
+    for target in ("lokal", "spotify", "youtube"):
+        w.target_buttons[target].set_active(True)
+        for page in ("songs", "cards", "game"):
+            w._select_page(page)
+            pump(0.3)
+            w.resize(1, 1)
+            pump(0.4)
+            width, height = w.get_size()
+            print(f"Mindestgröße {target}/{page}: {width}×{height}px")
+            check(f"{THEME}: {page} mit {target} passt auf 1366×768 ({width}×{height} ≤ 1320×700)",
+                  width <= 1320 and height <= 700)
+    w.target_buttons["lokal"].set_active(True)
+    w.resize(1320, 820)
+    pump(0.3)
 
 
 run(scenario)

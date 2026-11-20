@@ -31,6 +31,7 @@ from musik_bingo.domain.matching import PlayingTrack, SongMatcher, compare_with_
 from musik_bingo.domain.models import Song
 from musik_bingo.domain.playlist import from_player_tracks, to_csv, to_m3u, to_text
 from musik_bingo.domain.song_list import format_songs, parse_songs
+from musik_bingo.domain.text import count_text
 from musik_bingo.infrastructure import mpris, spotify
 from musik_bingo.infrastructure.audio_matcher import match_audio_files
 from musik_bingo.infrastructure.audio_player import AudioPlayer
@@ -205,9 +206,9 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.stack = Gtk.Stack()
         self.stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
         self.stack.set_transition_duration(160)
-        self.stack.add_named(self._build_songs_page(), "songs")
-        self.stack.add_named(self._build_cards_page(), "cards")
-        self.stack.add_named(self._build_game_page(), "game")
+        self.stack.add_named(self._scrollable(self._build_songs_page()), "songs")
+        self.stack.add_named(self._scrollable(self._build_cards_page()), "cards")
+        self.stack.add_named(self._scrollable(self._build_game_page()), "game")
         body.pack_start(self.stack, True, True, 0)
 
         status_bar = add_class(Gtk.Box(spacing=12), "statusbar")
@@ -217,6 +218,22 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         status_bar.pack_end(label("Leertaste: ziehen · Rücktaste: zurück · T: Titel aufdecken · P: Timer-Pause · F11: Vollbild", "small"), False, False, 0)
         root.pack_end(status_bar, False, False, 0)
         self._apply_theme()
+
+    @staticmethod
+    def _scrollable(page: Gtk.Widget) -> Gtk.Widget:
+        """Seite scrollt bei Bedarf senkrecht, statt die Fensterhöhe zu erzwingen.
+
+        Sonst wäre das Fenster mindestens so hoch wie die längste Seite (~960 px) und ragte auf
+        1366×768-Laptops aus dem Bildschirm. Bei normaler Größe füllt die Seite den Platz wie bisher.
+        """
+        scroll = Gtk.ScrolledWindow()
+        scroll.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        # Natürliche Größe der Seite weitergeben: Aufteilung neben der Seitenleiste bleibt wie bisher
+        scroll.set_propagate_natural_width(True)
+        scroll.set_propagate_natural_height(True)
+        scroll.add(page)  # legt einen Gtk.Viewport an
+        scroll.get_child().set_shadow_type(Gtk.ShadowType.NONE)
+        return scroll
 
     def _build_sidebar(self) -> Gtk.Widget:
         sidebar = add_class(Gtk.Box(orientation=Gtk.Orientation.VERTICAL), "app-sidebar")
@@ -883,9 +900,9 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         # Links der Playlist (z. B. Spotify-Track-Links) auf vorhandene Songs ohne Link übertragen –
         # Karten und Ziehung bleiben unverändert.
         taken = self._apply_links(links_from_playlist(songs, result.songs))
-        link_note = f" {taken} Links aus der Playlist übernommen." if taken else ""
+        link_note = f" {count_text(taken, 'Link', 'Links')} aus der Playlist übernommen." if taken else ""
         if taken:
-            self._set_status(f"Mit Playlist abgeglichen: {taken} Links übernommen")
+            self._set_status(f"Mit Playlist abgeglichen: {count_text(taken, 'Link', 'Links')} übernommen")
         if not missing and not extra:
             dialogs.message(self, Gtk.MessageType.INFO, "Playlist passt genau",
                             f"Alle {len(songs)} Songs der {source} sind in der Playlist – und umgekehrt.{link_note}")
@@ -1043,7 +1060,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         changed = self._apply_links(links)
         if changed:
             coverage = link_coverage(self._active_or_draft_songs()[0])
-            self._set_status(f"{changed} Links gespeichert · {dialogs.coverage_text(coverage)}")
+            self._set_status(f"{count_text(changed, 'Link', 'Links')} gespeichert · {dialogs.coverage_text(coverage)}")
 
     def _match_audio_folder(self, _button) -> None:
         dialog = Gtk.FileChooserDialog(title="Ordner mit Audiodateien auswählen", transient_for=self,

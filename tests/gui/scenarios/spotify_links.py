@@ -169,6 +169,30 @@ def scenario(w):
     check("Abgleich: Editorzeile aktualisiert", f"Song 07 – Interpret 7 | {track(7)}" in w._song_text().splitlines())
     check("Abgleich gespeichert", next(s for s in FileStore().load().game.songs if s.title == "Song 08").link
           == track(8))
+    # Regression: „1 Links aus der Playlist übernommen“ / „1 Links gespeichert“ (Einzahl/Mehrzahl)
+    w.service.set_song_links({"song 07 – interpret 7": ""})
+    w._apply_service_to_widgets(w.service)
+    pump(0.2)
+    details = []
+    dialogs.message = lambda parent, kind, title, detail: details.append(detail)
+    w._compare_playlist(None)
+    pump(0.2)
+    check("Abgleich mit einem Link: Einzahl in der Meldung",
+          len(details) == 1 and details[0].endswith(" 1 Link aus der Playlist übernommen.")
+          and "Links" not in details[0])
+    check("Abgleich mit einem Link: Einzahl in der Statuszeile",
+          w.status.get_text() == "Mit Playlist abgeglichen: 1 Link übernommen")
+    patch_dialogs()
+    w.service.set_song_links({"song 07 – interpret 7": "", "song 08 – interpret 8": ""})
+    w._apply_service_to_widgets(w.service)
+    pump(0.2)
+    dialogs.spotify_links_dialog = lambda parent, songs, source: {"song 07 – interpret 7": track(7)}
+    w._edit_links()
+    check("ein Link gespeichert: Einzahl", w.status.get_text().startswith("1 Link gespeichert · "))
+    dialogs.spotify_links_dialog = lambda parent, songs, source: {"song 07 – interpret 7": track(9),
+                                                                  "song 08 – interpret 8": track(8)}
+    w._edit_links()
+    check("zwei Links gespeichert: Mehrzahl", w.status.get_text().startswith("2 Links gespeichert · "))
     if OUT is not None:
         w._select_page("songs")
         pump(0.4)

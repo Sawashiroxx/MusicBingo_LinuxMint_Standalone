@@ -40,6 +40,7 @@ class GuiTests(unittest.TestCase):
     def test_bingo_check_without_card_number(self):
         self.scenario("ohne_nummer.py")
 
+    @unittest.skipUnless(shutil.which("xdotool"), "xdotool fehlt – echte Tastendrücke nicht möglich (CI installiert es)")
     def test_shortcuts_with_real_keystrokes(self):
         """Regression: Leertaste/T wirkten mit echten Tastendrücken nicht (nur im Direktaufruf)."""
         self.scenario("tasten.py")

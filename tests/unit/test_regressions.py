@@ -1,5 +1,6 @@
 """Regressionstests für Befunde aus der unabhängigen Code-Prüfung (Nov. 2026)."""
 import random
+import re
 import time
 import unittest
 
@@ -8,8 +9,8 @@ from musik_bingo.domain.links import spotify_web_search_url, youtube_search_url
 from musik_bingo.domain.matching import PlayingTrack, SongMatcher
 from musik_bingo.domain.models import Song
 from musik_bingo.domain.playlist import parse_csv, parse_text, from_player_tracks, ORDER_TITLE_ARTIST
-from musik_bingo.domain.song_list import format_songs, parse_songs
-from musik_bingo.domain.text import clean_title, strip_leading_number
+from musik_bingo.domain.song_list import format_songs, parse_song_line, parse_songs, set_links_in_text
+from musik_bingo.domain.text import clean_title, count_text, strip_leading_number
 
 
 class RegexDosTests(unittest.TestCase):
@@ -111,6 +112,12 @@ class SmallFixesTests(unittest.TestCase):
         self.assertEqual(random_mix(xmas, charts, 1, 50, random.Random(1)).christmas, 1)
         self.assertEqual(random_mix(xmas, charts, 3, 50, random.Random(1)).christmas, 2)
 
+    def test_count_text_uses_singular_for_one(self):
+        """Regression: Statuszeile meldete „1 Links gespeichert“."""
+        self.assertEqual(count_text(1, "Link", "Links"), "1 Link")
+        self.assertEqual(count_text(0, "Link", "Links"), "0 Links")
+        self.assertEqual(count_text(2, "Link", "Links"), "2 Links")
+
     def test_search_urls_escape_slashes(self):
         self.assertTrue(spotify_web_search_url("Thunderstruck", "AC/DC").endswith("AC%2FDC%20Thunderstruck"))
         self.assertNotIn("/DC", youtube_search_url("Thunderstruck", "AC/DC"))
@@ -154,6 +161,30 @@ class FableReview24Tests(unittest.TestCase):
                          [Song("Last Christmas", "Wham!")])
         self.assertEqual(parse_songs(format_songs([Song("#SELFIE")])), [Song("#SELFIE")])
 
+    def assert_documented_replacements(self, original: Song, result: Song, context) -> None:
+        """Titel/Interpret wie im Original – bis auf die dokumentierten Ersetzungen des Editors:
+        Gedankenstriche (– —) als Bindestrich „-“ und im Titel ein führendes Kommentarzeichen
+        („# …“, „##…“, „#“) als „＃“. Andere Abweichungen (Zeichen weg, Song zerlegt) sind Fehler."""
+        for field_name in ("title", "artist"):
+            before, after = getattr(original, field_name), getattr(result, field_name)
+            self.assertEqual(len(after), len(before), f"{field_name}: {after!r} ≠ {before!r} bei {context!r}")
+            for index, (old, new) in enumerate(zip(before, after)):
+                allowed = (new == old
+                           or (old in "–—" and new == "-")
+                           or (field_name == "title" and index == 0 and old == "#" and new == "＃"
+                               and re.match(r"#(\s|#|$)", before)))
+                self.assertTrue(allowed, f"{field_name}: {after!r} ≠ {before!r} bei {context!r}")
+            if field_name == "title" and re.match(r"#(\s|#|$)", before):
+                self.assertTrue(after.startswith("＃"), f"Kommentarzeichen nicht ersetzt: {context!r}")
+
+    def check_editor_round_trip(self, song: Song) -> None:
+        once = parse_songs(format_songs([song]))
+        self.assertEqual(len(once), 1, f"Song verloren oder zerlegt: {song!r} → {format_songs([song])!r}")
+        self.assert_documented_replacements(song, once[0], song)
+        self.assertEqual(once[0].link, song.link, repr(song))
+        self.assertEqual(parse_songs(format_songs(once)), once, f"nicht idempotent: {song!r}")
+        self.assertEqual(format_songs(parse_songs(format_songs(once))), format_songs(once), repr(song))
+
     def test_editor_round_trip_fuzz_never_loses_or_splits_songs(self):
         # Realistische Namen: Wörter mit Bindestrich/Gedankenstrich dazwischen („Song - Live“, „A – B“)
         rng = random.Random(2412)
@@ -167,13 +198,45 @@ class FableReview24Tests(unittest.TestCase):
                 parts.append(rng.choice(words))
             return " ".join(parts)
         for _ in range(3000):
-            title = name(4)
-            artist = name(2) if rng.random() < 0.7 else ""
-            song = Song(title, artist)
-            once = parse_songs(format_songs([song]))
-            self.assertEqual(len(once), 1, repr(song))
-            if not title.startswith("#"):
-                self.assertEqual(once[0].title, song.title, repr(song))
-            to_hyphen = str.maketrans("–—", "--")
-            self.assertEqual(once[0].artist.translate(to_hyphen), song.artist.translate(to_hyphen), repr(song))
-            self.assertEqual(parse_songs(format_songs(once)), once, repr(song))
+            self.check_editor_round_trip(Song(name(4), name(2) if rng.random() < 0.7 else ""))
+
+    def test_editor_round_trip_fuzz_with_random_characters(self):
+        """Regression: Song("Wham! –", "x") wurde zu „Wham! – – x“ → Titel „Wham!“, Interpret „– x“."""
+        self.check_editor_round_trip(Song("Wham! –", "x"))
+        rng = random.Random(2026)
+        alphabet = "ab XY#|-–—"
+        link = "spotify:track:4uLU6hMCjMI75M1A2tKUQC"
+        checked = 0
+        for _ in range(20_000):
+            title = "".join(rng.choice(alphabet) for _ in range(rng.randint(1, 12)))
+            artist = "".join(rng.choice(alphabet) for _ in range(rng.randint(0, 8)))
+            try:  # Wie beim Laden eines Spielstands: Leerzeichen am Rand entfernt, leerer Titel ungültig
+                song = Song.from_dict({"title": title, "artist": artist, "link": link if rng.random() < 0.3 else ""})
+            except ValueError:
+                continue
+            self.check_editor_round_trip(song)
+            checked += 1
+        self.assertGreater(checked, 19_000)
+
+    def test_set_links_in_text_keeps_songs_with_dashes(self):
+        """„Links übernehmen“ schreibt die Zeile mit format_song neu – der Song darf sich nicht ändern."""
+        link = "spotify:track:4uLU6hMCjMI75M1A2tKUQC"
+        rng = random.Random(77)
+        alphabet = "ab XY#|-–—"
+        lines = ["Wham! – – x", "Wham! –  – x"]
+        for _ in range(20_000):
+            lines.append("".join(rng.choice(alphabet) for _ in range(rng.randint(1, 20))))
+        for line in lines:
+            song = parse_song_line(line)
+            if song is None:
+                continue
+            updated = set_links_in_text(f"# Kopf\n{line}\nAndere – Band", {song.key: link})
+            songs = parse_songs(updated)
+            self.assertEqual(len(songs), 2, f"{line!r} → {updated!r}")
+            self.assert_documented_replacements(song, songs[0], line)
+            self.assertEqual(songs[0].link, link, repr(line))
+            self.assertEqual(updated.split("\n")[0::2], ["# Kopf", "Andere – Band"])
+        # Titel, der auf „ –“ endet, mit Interpret
+        updated = set_links_in_text(format_songs([Song("Wham! –", "x")]), {Song("Wham! –", "x").key: link})
+        self.assertEqual(len(parse_songs(updated)), 1, updated)
+        self.assert_documented_replacements(Song("Wham! –", "x"), parse_songs(updated)[0], updated)

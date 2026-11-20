@@ -7,11 +7,13 @@ import shutil
 import subprocess
 import sys
 
-from common import check, patch_dialogs, pump, run
+from common import check, forbid_network, patch_dialogs, pump, run
 
 if not shutil.which("xdotool"):
-    print("xdotool fehlt – Test übersprungen")
-    sys.exit(0)
+    # Kein stilles „bestanden“: test_gui.py überspringt den Test vorher sichtbar (skipTest)
+    print("FAIL xdotool fehlt – echte Tastendrücke nicht möglich")
+    sys.exit(1)
+forbid_network()
 patch_dialogs()
 
 
