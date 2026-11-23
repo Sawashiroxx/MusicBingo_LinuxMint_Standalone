@@ -78,6 +78,9 @@ JSON mit `version: 1`, atomar geschrieben, Dateirechte 0600 (nur der Benutzer). 
 Housewife – Tate McRae
 ```
 
+Mitgeliefert: Weihnachten (2 Listen) und Charts: Jahrzehnte `charts_1990er`, `charts_2000er`, `charts_2010er`, `charts_2020_2024` (Single-Jahrescharts, Platz 1–10 je Jahr) sowie die aktuellen Listen 2025/2026. Jede Datei erscheint im Zufallsmix automatisch als eigenes Häkchen (sortiert nach Name).
+Regel (Test `test_shipped_catalogs_have_unique_titles`): Ein Titel kommt über alle Listen hinweg nur mit **einem** Interpreten vor – bei Konflikten bleibt die bekanntere Fassung.
+
 ## Tests
 
 | Ordner | Inhalt |

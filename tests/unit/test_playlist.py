@@ -306,6 +306,22 @@ class CatalogTests(unittest.TestCase):
                 self.assertTrue(all(song.artist for song in catalog.songs))
         self.assertEqual(categories, {"weihnachten", "charts"})
 
+    def test_decade_catalogs_are_shipped_in_order_and_mixable(self):
+        """1990er–2020er-Listen: vorhanden, belegt, chronologisch sortiert und allein mischbar."""
+        files = {p.stem: p for p in CATALOG_DIR.glob("*.txt")}
+        decades = ["charts_1990er", "charts_2000er", "charts_2010er", "charts_2020_2024"]
+        catalogs = [parse_catalog(key, files[key].read_text(encoding="utf-8")) for key in decades]
+        for catalog in catalogs:
+            with self.subTest(catalog=catalog.key):
+                self.assertEqual(catalog.category, "charts")
+                self.assertIn("Single-Jahrescharts", catalog.source)
+                self.assertGreaterEqual(len(catalog.songs), 40)
+                self.assertEqual(len({s.key for s in catalog.songs}), len(catalog.songs))
+        # Im Zufallsmix wird nach Namen sortiert – die Jahrzehnte müssen dabei in Reihenfolge stehen
+        self.assertEqual([c.name for c in catalogs], sorted(c.name for c in catalogs))
+        result = random_mix([], unique_songs(catalogs[:1]), 50, 0, random.Random(7))
+        self.assertEqual((len(result.songs), result.shortfall), (50, 0))
+
     def test_catalog_errors(self):
         with self.assertRaisesRegex(ValueError, "kategorie"):
             parse_catalog("x", "# kategorie: oper\nA – B")
