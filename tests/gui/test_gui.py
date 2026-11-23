@@ -63,6 +63,15 @@ class GuiTests(unittest.TestCase):
         require(self, "xdotool")
         self.scenario("streng_1366.py", screen="1366x768")
 
+    def test_evening_with_full_card_only_over_several_rounds(self):
+        """Nur „Volle Karte“, mehrere Runden: Ziel bleibt, Folgen-Modus wartet nach dem Gewinner."""
+        self.scenario("abend_volle_karte.py")
+
+    def test_beamer_fits_small_projectors(self):
+        """1280×720 und 1024×768: zweizeiliger Titel, Countdown und BINGO-Banner bleiben im Bild."""
+        target = os.environ.get("SCREENSHOT_DIR")
+        self.scenario("beamer_klein.py", *([target] if target else []), screen="1920x1200")
+
     def test_spotify_open_uri_fallback_uses_web_player(self):
         self.scenario("spotify_fallback.py")
 
@@ -71,10 +80,11 @@ class GuiTests(unittest.TestCase):
 
         haengt: Spotify antwortet nicht – Oberfläche bleibt bedienbar. spaet: Titel startet nach der Prüfzeit.
         testabbruch: abgebrochener und neu gestarteter Test läuft nur einmal. pause_kontrolle: nach der
-        Pause zum Ende der Spielzeit sendet die Kontrolle kein „Play“ mehr.
+        Pause zum Ende der Spielzeit sendet die Kontrolle kein „Play“ mehr. ohne_haken: Song-Timer ohne
+        „Beim Ziehen automatisch abspielen“ – Hinweis statt stummer Ziehung.
         """
         for mode in ("pausiert", "ignoriert", "start", "test", "pause", "haengt", "spaet", "testabbruch",
-                     "pause_kontrolle", "wiederholt", "ohne_testsong"):
+                     "pause_kontrolle", "wiederholt", "ohne_testsong", "ohne_haken"):
             with self.subTest(mode=mode):
                 self.scenario("spotify_abspielen.py", mode)
 

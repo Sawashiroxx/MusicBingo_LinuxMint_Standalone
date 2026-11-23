@@ -153,7 +153,8 @@ def scenario(w):
     w._verify_bingo(None)
     check("Gleiche Karte, gleiche Stufe: kein zweiter Eintrag", len(w.service.winners) == 1
           and "Schon eingetragen" in MESSAGES)
-    dialogs.bingo_check_dialog = lambda parent, count, rule: (2, "")
+    loser = next(n for n in range(2, len(w.service.game.cards) + 1) if not w.service.check_win(n)[0])
+    dialogs.bingo_check_dialog = lambda parent, count, rule: (loser, "")
     dialogs.bingo_result_dialog = lambda *args: True
     w._verify_bingo(None)
     check("Karte ohne Bingo wird nicht eingetragen", len(w.service.winners) == 1)

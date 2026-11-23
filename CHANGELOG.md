@@ -11,6 +11,20 @@
   Jede Liste ist einzeln wählbar, die aktuellen Listen 2025/2026 bleiben erhalten. Bei gleichem Titel verschiedener Interpreten ist nur die bekanntere Fassung enthalten, etwa „It's My Life“ von Bon Jovi.
 - Tests: Neues GUI-Szenario „wie am Abend“ auf einem 1366×768-Bildschirm. Es nutzt echte Dialoge statt automatischer Bestätigung, gehaltene Tasten, echte Mausklicks und Doppelklicks, Tippfehler bei der Kartennummer, lange Spotify-Titel, den Beamer mit langem Gewinnernamen und einen Speicherfehler. Gegen den Stand vor 2.5.1 schlagen 19 von 21 Prüfungen an.
 - CI: Fehlt ein GUI-Werkzeug, schlägt der Test fehl, statt still übersprungen zu werden.
+- Behoben nach der Abendprüfung (Claude Fable 5.2; geprüft wurde ein Abend mit 3×3-Karten, nur „Volle Karte“, mehreren Runden, Song-Timer und Spotify):
+  - **Song-Timer:** Eine eingetippte Zahl gilt, sobald der nächste Song gezogen wird – auch ohne Enter oder Tab. Vorher stand z. B. „15“ im Feld, der Timer blieb aber aus, wenn danach geklickt oder die Leertaste gedrückt wurde.
+  - **Song-Timer ohne „Beim Ziehen automatisch abspielen“:** Mit den Vorgaben der App zog der Timer Song um Song weiter, ohne dass je Musik lief, und die Statuszeile meldete „Spotify ist nicht verbunden“. Jetzt erscheint ein Hinweis mit dem Knopf „Automatisch abspielen“ (setzt den Haken und startet den aktuellen Song); „Ausblenden“ merkt sich, dass von Hand abgespielt wird.
+  - **Warnungen sichtbar:** Der Warnkasten („läuft, steht aber nicht auf den Karten“, „Spotify hat den Titel nicht gestartet“) steht direkt unter den Knöpfen. Vorher lag er auf einem 1366×768-Laptop unter dem sichtbaren Bereich – „Überspringen“ war nur nach Scrollen zu erreichen.
+  - **Mehrere Runden nur mit „Volle Karte“:** Eine neue Runde beginnt mit dem Gewinnziel, das vor dem ersten Song gewählt war. Vorher sprang das Ziel bei jeder neuen Runde auf „1 Reihe“ zurück – auch auf dem Beamer.
+  - **Player folgen mit Song-Timer:** Nach „Als Gewinner eintragen“ bleibt der Timer aus, bis die Spielleitung weitermacht. Vorher lief er wieder an, sobald Spotify von selbst zum nächsten Titel wechselte, und schaltete während der Ehrung alle paar Sekunden weiter. Die Rückfrage „Neue Runde“ weist im Folgen-Modus darauf hin, dass der laufende Titel sofort zählt.
+  - **Beamer:** Auf kleinen Beamern (1280×720, 1024×768) lag „Zuletzt“ über dem BINGO-Banner, wenn der Titel zweizeilig war. Der Inhalt wird jetzt verkleinert, bis alles passt; das Beamer-Fenster lässt sich auf jede Größe bringen.
+  - **Tastatur:** Nach einem versehentlichen Tab beendet auch ein Klick auf einen Knopf (z. B. „Nächsten Song ziehen“) die Tastatur-Navigation. Vorher schaltete die nächste Leertaste dann das Gewinnziel um.
+  - **Fenster:** Mit 3×3-Karten war das Fenster mindestens 1380 px breit, breiter als ein 1366-px-Laptop. Die Startgröße passt jetzt auf 1366×768 (die Kopfleiste wurde nicht mitgerechnet).
+  - **Import:** Aus Excel/LibreOffice kopierte Zellen und Excel-„Unicode-Text (*.txt)“ werden als Tabelle gelesen. Vorher wurde die Kopfzeile zum Song und der Interpret fehlte.
+  - **Zuordnung:** „Killing Me Softly (With His Song)“ wird auch erkannt, wenn der Player den Titel ohne Klammer meldet.
+  - **Listen:** „ABBA-esque“ (eine EP mit vier Titeln) steht in der 1990er-Liste jetzt als „Take A Chance On Me – Erasure“.
+  - **Texte:** Der Zufallsmix nennt Faustregeln für 3×3, 4×4 und 5×5 statt nur für 5×5; der Tooltip spricht nicht mehr nur von „aktuellen Charts“. README: Hinweis auf „Beim Ziehen automatisch abspielen“ und Planung für 3×3.
+  - **Tests:** Zwei GUI-Tests hingen vom Zufall ab („Ohne Kartennummer“ schlug in rund 2 % der Läufe fehl) und stellen ihre Ausgangslage jetzt sicher. Neu: Abend nur mit „Volle Karte“, Beamer mit kleiner Auflösung, Mindestgröße mit 3×3-Karten, Startgröße, Song-Timer ohne automatisches Abspielen, Lage der Warnung auf 1366×768.
 
 ## 2.5.1 – November 2026
 

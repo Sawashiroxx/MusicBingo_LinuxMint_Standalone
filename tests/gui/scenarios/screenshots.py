@@ -85,6 +85,20 @@ def check_minimum_size(w):
             check(f"{THEME}: {page} mit {target} passt auf 1366×768 ({width}×{height} ≤ 1320×700)",
                   width <= 1320 and height <= 700)
     w.target_buttons["lokal"].set_active(True)
+    # Regression: Die Vorschau von 3×3-Karten erzwang drei Karten pro Zeile – das Fenster war damit auf jeder
+    # Seite mindestens 1380 px breit, breiter als ein 1366-px-Bildschirm.
+    w.service.create_cards(3, True, 160)
+    w._render_cards()
+    w._render_caller()
+    for page in ("songs", "cards", "game"):
+        w._select_page(page)
+        pump(0.3)
+        w.resize(1, 1)
+        pump(0.4)
+        width, height = w.get_size()
+        print(f"Mindestgröße 3×3/{page}: {width}×{height}px")
+        check(f"{THEME}: {page} mit 3×3-Karten passt auf 1366×768 ({width}×{height} ≤ 1320×700)",
+              width <= 1320 and height <= 700)
     w.resize(1320, 820)
     pump(0.3)
 

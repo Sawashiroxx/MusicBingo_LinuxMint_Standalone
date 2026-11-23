@@ -5,11 +5,16 @@ import gi
 
 gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
-from gi.repository import Gdk, Gtk, Pango
+from gi.repository import Gdk, GLib, Gtk, Pango
 
 from musik_bingo.application.beamer_state import BeamerState
 from musik_bingo.presentation.dialogs import add_class, label
 
+# Die Schriftgrößen (theme.py) sind feste Pixelwerte. Auf kleinen Beamern (1280×720, 1024×768) passten ein
+# zweizeiliger Titel mit Countdown oder das BINGO-Banner nicht mehr in die Höhe – „Zuletzt“ lag dann über dem
+# Banner. Passt der Inhalt nicht, wird er deshalb stufenweise verkleinert.
+SCALES = (1.0, 0.92, 0.85, 0.78, 0.72, 0.66, 0.6, 0.55, 0.5)
+BORDER, SPACING, MIDDLE_SPACING = 48, 18, 16
 
 
 class BeamerWindow(Gtk.Window):
@@ -23,10 +28,20 @@ class BeamerWindow(Gtk.Window):
         self.host = parent
         root = add_class(Gtk.EventBox(), "beamer")
         self.add(root)
-        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=18)
-        box.set_border_width(48)
+        # Rollbereich ohne Leisten: Die Mindesthöhe des Fensters hängt so nicht von der Textmenge ab. GTK rechnete
+        # sie sonst für die Mindestbreite aus (bis 1500 px bei langen Titeln) – das Fenster ließ sich nicht kleiner
+        # machen als der Bildschirm hoch ist.
+        self.area = Gtk.ScrolledWindow()
+        self.area.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.EXTERNAL)
+        self.area.set_overlay_scrolling(False)
+        self.area.set_kinetic_scrolling(False)
+        root.add(self.area)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=SPACING)
+        box.set_border_width(BORDER)
         box.set_valign(Gtk.Align.FILL)
-        root.add(box)
+        self.area.add(box)  # legt einen Gtk.Viewport an
+        self.area.get_child().set_shadow_type(Gtk.ShadowType.NONE)
+        self.box = box
         self.event_label = label("", "beamer-event", xalign=0.5)
         self.event_label.set_ellipsize(Pango.EllipsizeMode.END)
         self.round_label = label("", "beamer-round", xalign=0.5)
@@ -50,8 +65,9 @@ class BeamerWindow(Gtk.Window):
         self.recent_label.set_justify(Gtk.Justification.CENTER)
         box.pack_start(self.event_label, False, False, 0)
         box.pack_start(self.round_label, False, False, 0)
-        middle = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        middle = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=MIDDLE_SPACING)
         middle.set_valign(Gtk.Align.CENTER)
+        self.middle = middle
         for widget in (self.song_label, self.title_label, self.artist_label, self.timer_label, self.banner):
             middle.pack_start(widget, False, False, 0)
         box.pack_start(middle, True, True, 0)
@@ -63,6 +79,14 @@ class BeamerWindow(Gtk.Window):
         self.connect("key-release-event", lambda _w, event: bool(self.host is not None
                                                                  and self.host._on_key_release(self.host, event)))
         self.state: BeamerState | None = None
+        self.scale = 1.0
+        self._scaled = (self.event_label, self.round_label, self.song_label, self.title_label, self.artist_label,
+                        self.timer_label, self.banner_label, self.recent_label)
+        self._fit_key: tuple | None = None
+        self._fit_size = (0, 0)
+        self._fit_source = 0
+        self.area.connect("size-allocate", self._area_allocated)
+        self.connect("destroy", self._cancel_fit)
 
     def place_on_second_monitor(self, host: Gtk.Window) -> bool:
         """Öffnet auf einem anderen Bildschirm als die Spielleitung (falls vorhanden) im Vollbild."""
@@ -107,6 +131,53 @@ class BeamerWindow(Gtk.Window):
             return self.host._on_key(self.host, event)
         return False
 
+    # ------------------------------------------------------------ Größe an den Beamer anpassen
+
+    def _set_scale(self, scale: float) -> None:
+        if scale == self.scale:
+            return
+        self.scale = scale
+        attributes = None
+        if scale != 1.0:
+            attributes = Pango.AttrList()
+            attributes.insert(Pango.attr_scale_new(scale))
+        for widget in self._scaled:
+            widget.set_attributes(attributes)
+        self.box.set_border_width(round(BORDER * scale))
+        self.box.set_spacing(round(SPACING * scale))
+        self.middle.set_spacing(round(MIDDLE_SPACING * scale))
+
+    def needed_height(self, width: int) -> int:
+        """Höhe, die der Inhalt bei dieser Breite in der aktuellen Schriftgröße braucht."""
+        return self.box.get_preferred_height_for_width(width)[1]
+
+    def fit(self) -> None:
+        """Größte Schriftstufe wählen, bei der alles in die Höhe passt."""
+        allocation = self.area.get_allocation()
+        if allocation.width <= 1 or allocation.height <= 1:
+            return  # noch nicht angezeigt
+        for scale in SCALES:
+            self._set_scale(scale)
+            if self.needed_height(allocation.width) <= allocation.height:
+                break
+
+    def _fit_when_idle(self) -> bool:
+        self._fit_source = 0
+        self.fit()
+        return False
+
+    def _area_allocated(self, _widget, allocation) -> None:
+        size = (allocation.width, allocation.height)
+        if size != self._fit_size:
+            self._fit_size = size
+            if not self._fit_source:  # nicht mitten in der Größenzuteilung umbauen
+                self._fit_source = GLib.idle_add(self._fit_when_idle)
+
+    def _cancel_fit(self, *_args) -> None:
+        if self._fit_source:
+            GLib.source_remove(self._fit_source)
+            self._fit_source = 0
+
     def update(self, state: BeamerState) -> None:
         self.state = state
         self.event_label.set_text(state.event_title.upper())
@@ -121,3 +192,9 @@ class BeamerWindow(Gtk.Window):
         self.banner_label.set_text(state.banner)
         self.banner.set_visible(bool(state.banner))
         self.recent_label.set_text("Zuletzt: " + " · ".join(state.recent) if state.recent else "")
+        # Nur neu einpassen, wenn sich die Textmenge ändert – der Countdown läuft jede Sekunde durch update()
+        key = (state.event_title, state.round_line, state.song_line, state.title, state.artist, bool(state.timer),
+               state.banner, state.recent)
+        if key != self._fit_key:
+            self._fit_key = key
+            self.fit()

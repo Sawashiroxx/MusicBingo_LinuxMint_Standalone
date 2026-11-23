@@ -6,7 +6,7 @@ import unittest
 
 from musik_bingo.application.game_service import GameService
 from musik_bingo.domain.models import Song
-from musik_bingo.domain.playlist import parse_csv
+from musik_bingo.domain.playlist import parse_csv, parse_playlist
 
 
 class CsvOhneRatenTests(unittest.TestCase):
@@ -34,6 +34,32 @@ class CsvOhneRatenTests(unittest.TestCase):
                 "0bYg9bo50gSsH3LtXe2SQn,All I Want for Christmas Is You,Mariah Carey\n")
         self.assertEqual([s.link for s in parse_csv(text).songs],
                          ["spotify:track:4uLU6hMCjMI75M1A2tKUQC", "spotify:track:0bYg9bo50gSsH3LtXe2SQn"])
+
+class TabellenTextTests(unittest.TestCase):
+    """Aus Excel/LibreOffice kopierte Zellen und „Unicode-Text (*.txt)“ sind Tab-getrennt. Ohne Endung .csv wurde
+    die Kopfzeile zum Song, jeder Titel enthielt einen Tabulator und der Interpret fehlte."""
+
+    TABLE = "Titel\tInterpret\tLink\r\nStille Nacht\tTraditional\t\r\nLast Christmas\tWham!\t" \
+            "spotify:track:4uLU6hMCjMI75M1A2tKUQC\r\n"
+
+    def test_eingefuegte_tabelle_mit_kopfzeile(self):
+        for filename in ("", "liste.txt", "LISTE.TXT"):
+            with self.subTest(filename=filename):
+                songs = parse_playlist(self.TABLE, filename).songs
+                self.assertEqual([(s.title, s.artist, s.link) for s in songs],
+                                 [("Stille Nacht", "Traditional", ""),
+                                  ("Last Christmas", "Wham!", "spotify:track:4uLU6hMCjMI75M1A2tKUQC")])
+
+    def test_leerzeilen_und_bom_vor_der_kopfzeile(self):
+        songs = parse_playlist("\ufeff\n\nTrack Name\tArtist Name(s)\nFeliz Navidad\tJosé Feliciano\n").songs
+        self.assertEqual(songs, [Song("Feliz Navidad", "José Feliciano")])
+
+    def test_normale_textlisten_bleiben_textlisten(self):
+        # Tabulator ohne erkennbare Kopfzeile und Kopfwörter ohne Tabulator: wie bisher zeilenweise lesen
+        self.assertEqual(parse_playlist("Wham! - Last Christmas\nTitel - Interpret\n").format_name, "Textliste")
+        self.assertEqual(parse_playlist("Wham!\tLast Christmas\n").format_name, "Textliste")
+        self.assertEqual(parse_playlist(self.TABLE).format_name, "CSV")
+
 
 class SpielstandZeichenTests(unittest.TestCase):
     """Befund: Ein Stand mit einsamem Surrogat lädt, lässt sich nie wieder speichern und verhindert den Start."""

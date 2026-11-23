@@ -37,6 +37,15 @@ class KodierungTests(unittest.TestCase):
             songs = parse_playlist(self.read_text_file(path), str(path)).songs
         self.assertEqual(songs, [Song("Stille Nacht", "Traditional")])
 
+    def test_excel_unicode_text_utf16_mit_endung_txt(self):
+        """Excel speichert „Unicode-Text“ als *.txt – nicht als *.csv wie im Test oben."""
+        from musik_bingo.domain.playlist import parse_playlist
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "excel.txt"
+            path.write_bytes("Titel\tInterpret\r\nStille Nacht\tTraditional\r\nLast Christmas\tWham!\r\n".encode("utf-16"))
+            songs = parse_playlist(self.read_text_file(path), str(path)).songs
+        self.assertEqual(songs, [Song("Stille Nacht", "Traditional"), Song("Last Christmas", "Wham!")])
+
 class UmleitungTests(unittest.TestCase):
     """Befund: QuickTime-Verweisfilm (als .mp3 getarnt) ließ GStreamer eine HTTP-Adresse abrufen."""
 

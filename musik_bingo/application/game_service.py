@@ -51,6 +51,10 @@ class GameService:
         self.player_name = ""
         # Gewinnziel der aktuellen Runde: reihe, zwei_reihen, volle_karte
         self.win_target = "reihe"
+        # Gewinnziel, mit dem eine Runde beginnt: das Ziel, das vor dem ersten Song der Runde gewählt war.
+        # Neue Runden starten wieder damit – wer den Abend nur mit „Volle Karte“ spielt, muss es nicht
+        # vor jeder Runde neu einstellen.
+        self.round_start_target = "reihe"
         # Ablauf des Abends
         self.event_title = DEFAULT_TITLE
         self.round_number = 1
@@ -92,6 +96,7 @@ class GameService:
         # Neue Karten = neuer Abend: Gewinner gehören zu den alten Karten (liegen in der Sicherung).
         self.round_number = 1
         self.win_target = "reihe"
+        self.round_start_target = "reihe"
         self.winners = []
         return cards
 
@@ -111,9 +116,12 @@ class GameService:
         )
 
     def set_win_target(self, target: str) -> None:
+        """Gewinnziel von Hand wählen. Vor dem ersten Song der Runde gilt es auch als Startziel der nächsten Runden."""
         if target not in WIN_TARGETS:
             raise ValueError("Unbekanntes Gewinnziel.")
         self.win_target = target
+        if self.game.caller.index < 0:
+            self.round_start_target = target
 
     def check_win(self, card_number: int) -> tuple[bool, list[str], bool]:
         """(Gewinnziel erreicht?, vollständige Linien, Karte voll?) für eine Kartennummer."""
@@ -140,7 +148,11 @@ class GameService:
         self.timer_seconds, self.reveal_seconds = seconds, reveal_seconds
 
     def advance_stage(self) -> tuple[str, bool]:
-        """Nächste Gewinnstufe; nach „Volle Karte“ neue Runde mit neu gemischter Ziehung."""
+        """Nächste Gewinnstufe; nach „Volle Karte“ neue Runde mit neu gemischter Ziehung.
+
+        Die neue Runde beginnt mit dem Startziel (``round_start_target``) – üblich „1 Reihe“, bei einem Abend
+        nur mit „Volle Karte“ wieder „Volle Karte“.
+        """
         if not self.game.cards:
             raise ValueError("Es gibt noch keine Runde.")
         target, new_round = next_stage(self.win_target)
@@ -149,6 +161,7 @@ class GameService:
                 raise ValueError("Maximale Rundenzahl erreicht.")
             self.game.caller.reshuffle()
             self.round_number += 1
+            target = self.round_start_target
         self.win_target = target
         return target, new_round
 
@@ -160,7 +173,7 @@ class GameService:
             raise ValueError("Maximale Rundenzahl erreicht.")
         self.game.caller.reshuffle()
         self.round_number += 1
-        self.win_target = "reihe"
+        self.win_target = self.round_start_target
 
     def add_winner(self, card_number: int, name: str = "", allow_repeat: bool = False) -> Winner:
         """Trägt eine Karte als Gewinner der aktuellen Stufe ein – nur, wenn sie das Ziel wirklich erreicht hat."""
@@ -274,6 +287,7 @@ class GameService:
                 "follow_player": self.follow_player,
                 "player_name": self.player_name,
                 "win_target": self.win_target,
+                "round_start_target": self.round_start_target,
                 "event_title": self.event_title,
                 "round_number": self.round_number,
                 "timer_seconds": self.timer_seconds,
@@ -447,6 +461,11 @@ class GameService:
         if win_target not in WIN_TARGETS:
             raise ValueError("Ungültiges Gewinnziel im Spielstand.")
         service.win_target = win_target
+        # Fehlt in Ständen bis 2.5.1: dort begann jede neue Runde mit „1 Reihe“
+        round_start_target = settings.get("round_start_target", "reihe")
+        if round_start_target not in WIN_TARGETS:
+            raise ValueError("Ungültiges Start-Gewinnziel im Spielstand.")
+        service.round_start_target = round_start_target
         title = settings.get("event_title", DEFAULT_TITLE)
         if not isinstance(title, str):
             raise ValueError("Ungültiger Titel der Feier im Spielstand.")

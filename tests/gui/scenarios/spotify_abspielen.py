@@ -1,6 +1,6 @@
 """E2E: Spotify zuverlässig abspielen – Abspiel-Kontrolle, Autostart, „Spotify testen“, „Nach Ablauf pausieren“.
 
-Aufruf: spotify_abspielen.py <pausiert|ignoriert|start|test|pause|haengt|spaet|testabbruch|pause_kontrolle>
+Aufruf: spotify_abspielen.py <pausiert|ignoriert|start|test|pause|haengt|spaet|testabbruch|pause_kontrolle|ohne_haken>
 Spotify wird als eigener Prozess simuliert (tests/support/fake_player_process.py) – kein echtes Spotify, kein Netz.
 """
 import json
@@ -12,7 +12,7 @@ import time
 
 from common import MESSAGES, ROOT, TMP, check, forbid_network, patch_dialogs, pump, run, wait
 
-from gi.repository import GLib
+from gi.repository import GLib, Gtk
 
 MODE = sys.argv[1] if len(sys.argv) > 1 else "pausiert"
 LOG = TMP / "fake.json"
@@ -500,9 +500,78 @@ def scenario_pause_control(w):
     check("nach der Pause kein Play mehr", calls("Play") == 0 and state()["status"] == "Paused")
 
 
+def scenario_without_autoplay(w):
+    """Song-Timer an, „Beim Ziehen automatisch abspielen“ aus (Vorgabe der App).
+
+    Regression aus der Abendprüfung 11/2026: Der Timer zählte herunter, löste auf und zog weiter, ohne dass je
+    Musik lief – ohne Hinweis, die Statuszeile meldete sogar „Spotify ist nicht verbunden“.
+    """
+    start_fake("spotify-pausiert")
+    setup_round(w)
+    check("Vorgabe: „Beim Ziehen automatisch abspielen“ ist aus", not w.auto_play_check.get_active())
+    w.timer_spin.set_value(5)
+    w.reveal_spin.set_value(2)
+    w._select_page("game")
+    w._draw_next()
+    check("Hinweis: Timer läuft, Musik startet nicht von selbst",
+          w.warning_revealer.get_reveal_child() and w.warning_kind == "autoplay"
+          and "Musik startet aber nicht von selbst" in w.warning_label.get_text()
+          and "Beim Ziehen automatisch abspielen" in w.warning_label.get_text())
+    check("Hinweis bietet das Einschalten an, kein „Überspringen“",
+          w.warning_autoplay_button.get_visible() and not w.warning_skip_button.get_visible())
+    check("Hinweis ist kein Dialog", MESSAGES == [])
+    w.resize(1, 1)
+    pump(0.4)
+    width, height = w.get_size()
+    check(f"Fenster passt auch mit Hinweis auf 1366×768 ({width}×{height} ≤ 1320×700)", width <= 1320 and height <= 700)
+    w.resize(1320, 662)  # mit Kopfleiste 728 px: Bildschirm minus 40-px-Leiste
+    pump(0.6)
+    scroller = w.warning_revealer.get_ancestor(Gtk.ScrolledWindow)
+    _x, top = w.warning_revealer.translate_coordinates(scroller, 0, 0)
+    bottom, visible = top + w.warning_revealer.get_allocated_height(), scroller.get_allocated_height()
+    check(f"Hinweis ist auf 1366×768 ohne Scrollen zu sehen (y {top}…{bottom} von {visible} px)",
+          bottom - top > 40 and top >= 0 and bottom <= visible)
+    check("Auflösung: Statuszeile behauptet nicht „Spotify ist nicht verbunden“",
+          wait(lambda: w.timer.phase == "auflösung", 6) and "nicht verbunden" not in w.status.get_text())
+    check("bis hierher wurde nichts gestartet", calls("OpenUri") == 0)
+    check("Timer zieht weiter, der Hinweis bleibt stehen", wait(lambda: len(w.service.game.caller.drawn) == 2, 6)
+          and w.warning_kind == "autoplay" and w.warning_revealer.get_reveal_child())
+    second = w.service.game.caller.current
+    w.timer_spin.set_value(30)  # ab hier zieht nichts mehr von selbst weiter
+    w.warning_autoplay_button.clicked()
+    saved = json.loads((TMP / "data" / "musik-bingo" / "spielstand.json").read_text())
+    check("Knopf im Hinweis: Haken gesetzt und gespeichert",
+          w.auto_play_check.get_active() and w.service.auto_play and saved["settings"]["auto_play"] is True)
+    check("Knopf im Hinweis: aktueller Song startet, Spielzeit beginnt neu",
+          wait(lambda: calls("OpenUri", uri_of(second)) == 1, 4) and w.timer.phase == "läuft" and w.timer.remaining >= 25)
+    check("Hinweis ist weg", not w.warning_revealer.get_reveal_child() and w.warning_kind == "")
+    w._draw_next()
+    third = w.service.game.caller.current
+    check("nächstes Ziehen startet den Song ohne Hinweis",
+          wait(lambda: calls("OpenUri", uri_of(third)) == 1, 4) and w.warning_kind != "autoplay")
+
+    # Wer bewusst von Hand abspielt, blendet den Hinweis einmal aus
+    w.auto_play_check.set_active(False)
+    w._draw_next()
+    check("Haken wieder aus: Hinweis kommt erneut", w.warning_kind == "autoplay" and w.warning_revealer.get_reveal_child())
+    w._dismiss_warning()
+    w._draw_next()
+    check("nach „Ausblenden“ kein Hinweis mehr bei jedem Song",
+          w.warning_kind == "" and not w.warning_revealer.get_reveal_child())
+    w.timer_spin.set_value(0)
+    w.timer_spin.set_value(30)
+    w._draw_next()
+    check("Timer neu eingeschaltet: Hinweis kommt wieder", w.warning_kind == "autoplay")
+    w.timer_spin.set_value(0)
+    check("Timer aus: Hinweis verschwindet", w.warning_kind == "" and not w.warning_revealer.get_reveal_child())
+    w._draw_next()
+    check("ohne Song-Timer kein Hinweis", w.warning_kind == "" and not w.warning_revealer.get_reveal_child())
+
+
 SCENARIOS = {"ohne_testsong": scenario_no_test_song, "wiederholt": scenario_retry, "pausiert": scenario_paused, "ignoriert": scenario_ignored, "start": scenario_start,
              "test": scenario_test, "pause": scenario_pause, "haengt": scenario_hung, "spaet": scenario_late,
-             "testabbruch": scenario_test_cancelled, "pause_kontrolle": scenario_pause_control}
+             "testabbruch": scenario_test_cancelled, "pause_kontrolle": scenario_pause_control,
+             "ohne_haken": scenario_without_autoplay}
 
 forbid_network()
 patch_dialogs()

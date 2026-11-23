@@ -20,7 +20,7 @@ Musik-Bingo für private Feiern als native Desktop-App (Python + GTK 3).
 - **Bingo prüfen:** zeigt die Karte mit gezogenen Feldern und Gewinnlinie, trägt Gewinner ein – auch *ohne Kartennummer*: Songs der Gewinnreihe anhaken, die App findet die Karte
 - **Beamer-Ansicht:** zweites Fenster für die Gäste, Titel erst nach Aufdecken (T), Countdown, BINGO-Banner
 - **Song-Timer:** nach X Sekunden auflösen und automatisch weiter (P = Pause); *Nach Ablauf pausieren* hält die Musik zur Auflösung an
-- **Gewinnerliste & Runden:** 1 Reihe → 2 Reihen → Volle Karte → neue Runde; keine Karte gewinnt doppelt
+- **Gewinnerliste & Runden:** 1 Reihe → 2 Reihen → Volle Karte → neue Runde; keine Karte gewinnt doppelt. Wer vor dem ersten Song z. B. *Volle Karte* wählt, spielt alle Runden nur damit
 - **Titel der Feier** auf Karten und Beamer
 
 ## Installation
@@ -58,6 +58,8 @@ Zum Ausdrucken für die Moderation: [Anleitung für die Spielleitung (PDF)](docs
 2. **Bingokarten:** *Drucken / PDF*
 3. **Spielleitung:** *Beamer öffnen*, Song-Timer einstellen, ziehen (Leertaste, T = Titel aufdecken, P = Timer-Pause, Rücktaste = zurück) oder *Player folgen* → *Bingo prüfen* → *Als Gewinner eintragen* → *Weiter: 2 Reihen* …
 
+   Damit die Leertaste (und der Song-Timer) den Song auch **abspielt**: bei *Wiedergabe über* das Ziel wählen (z. B. *Spotify*) und weiter unten *Beim Ziehen automatisch abspielen* anhaken. Ohne den Haken wird nur gezogen; läuft dabei der Song-Timer, weist die App darauf hin und bietet den Haken an.
+
 **Für ~140 Gäste** (Standardwerte): 75 Songs, 5×5 mit Freifeld, 160 Karten drucken. Ob 120 oder 170 kommen, ändert den Ablauf kaum.
 
 | Gewinnziel | erster Gewinner typischerweise nach |
@@ -65,6 +67,8 @@ Zum Ausdrucken für die Moderation: [Anleitung für die Spielleitung (PDF)](docs
 | 1 Reihe | ~16 Songs |
 | 2 Reihen | ~30 Songs |
 | Volle Karte | ~63 Songs (≈ 1 Stunde) |
+
+**Kurze Runden mit 3×3:** 50 Songs, 3×3 mit Freifeld, 160 Karten – die erste volle Karte fällt typischerweise nach ~27 Songs (≈ 9 Minuten bei 15 s Song-Timer + 5 s Auflösung), „1 Reihe“ dagegen schon nach ~3 Songs. Für einen Abend nur mit *Volle Karte*: das Gewinnziel **vor dem ersten Song** wählen – neue Runden (*Neue Runde*, dieselben gedruckten Karten) beginnen dann wieder damit.
 
 Spätestens nach dem letzten Song hat jede Karte „Volle Karte“ – es gibt also immer einen Gewinner, solange alle Songs der Liste gespielt werden (*Mit Playlist abgleichen* prüft das).
 

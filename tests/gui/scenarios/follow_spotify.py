@@ -5,6 +5,8 @@ import sys
 
 from common import (MESSAGES, ROOT, TMP, check, forbid_network, patch_dialogs, pump, run, wait)
 
+from gi.repository import Gtk
+
 LOG = TMP / "fake.json"
 FAKE = subprocess.Popen([sys.executable, str(ROOT / "tests" / "support" / "fake_player_process.py"), str(LOG), "spotify"],
                         stdout=subprocess.PIPE, text=True)
@@ -57,6 +59,16 @@ def scenario(w):
     check("fremder Titel → Warnung", wait(lambda: w.warning_revealer.get_reveal_child())
           and "Highway to Hell" in w.warning_label.get_text())
     check("fremder Titel nicht gezogen", drawn() == ["Mariah Carey", "Chris Rea"])
+    # Regression: Die Warnung lag unter Anzeige und Prognose – auf einem 1366×768-Laptop unter dem sichtbaren
+    # Bereich, „Überspringen“ war nur nach Scrollen zu erreichen. Jetzt direkt unter den Knöpfen.
+    w._select_page("game")
+    w.resize(1320, 662)  # mit Kopfleiste 728 px: Bildschirm minus 40-px-Leiste
+    pump(1.0)
+    scroller = w.warning_revealer.get_ancestor(Gtk.ScrolledWindow)
+    _x, top = w.warning_revealer.translate_coordinates(scroller, 0, 0)
+    bottom, visible = top + w.warning_revealer.get_allocated_height(), scroller.get_allocated_height()
+    check(f"Warnung mit „Überspringen“ ist auf 1366×768 ohne Scrollen zu sehen (y {top}…{bottom} von {visible} px)",
+          bottom - top > 40 and top >= 0 and bottom <= visible and w.warning_skip_button.get_visible())
     w._skip_unmatched(None)
     check("Überspringen blendet Warnung aus", wait(lambda: not w.warning_revealer.get_reveal_child()))
     check("Wiederholung zieht Wham neu (war zurückgenommen)", wait(lambda: drawn() == ["Mariah Carey", "Chris Rea", "Wham!"]))
