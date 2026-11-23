@@ -24,6 +24,21 @@ def press(window, key: str) -> None:
     pump(0.4)
 
 
+def type_text(text: str) -> None:
+    subprocess.run(["xdotool", "type", "--delay", "60", text], check=False, timeout=10)
+    pump(0.4)
+
+
+def click(window, widget) -> None:
+    """Echter Mausklick mitten auf das Widget."""
+    x, y = widget.translate_coordinates(window, 0, 0)
+    _ok, origin_x, origin_y = window.get_window().get_origin()
+    allocation = widget.get_allocation()
+    subprocess.run(["xdotool", "mousemove", str(origin_x + x + allocation.width // 2),
+                    str(origin_y + y + allocation.height // 2), "click", "1"], check=False, timeout=10)
+    pump(0.9)  # länger als die Doppelklick-Sperre
+
+
 def scenario(w):
     w.song_buffer.set_text("\n".join(f"Song {i} – Interpret {i}" for i in range(30)))
     w.count_spin.set_value(5)
@@ -56,6 +71,27 @@ def scenario(w):
     press(w, "space")
     check("Leertaste zieht auch mit Fokus im Timer-Feld", drawn() == before + 1)
 
+    # Regression: Eingetippte Sekunden (ohne Enter/Tab) galten beim Ziehen nicht. Knöpfe und Kürzel nehmen dem
+    # Zahlenfeld den Fokus nicht, es übernahm die Zahl also nie – im Feld stand „15“, der Timer blieb aus.
+    w.timer_spin.set_value(0)
+    w.timer_spin.grab_focus()  # markiert den alten Wert, Tippen ersetzt ihn
+    type_text("15")
+    press(w, "space")
+    check("eingetippter Song-Timer (15) gilt beim Ziehen mit der Leertaste",
+          w.service.timer_seconds == 15 and w.timer.phase == "läuft" and w.timer.remaining >= 13)
+    w.reveal_spin.grab_focus()
+    type_text("7")
+    click(w, w.draw_button)
+    check("eingetippte Auflösung (7) gilt beim Ziehen per Mausklick",
+          w.service.reveal_seconds == 7 and w.timer.reveal_seconds == 7 and w.timer.phase == "läuft")
+    # Schaltet der Timer selbst weiter, während das Feld gerade leer ist (mitten im Tippen), bleibt der alte Wert –
+    # ein leeres Feld hieße sonst 0 = „Timer aus“ und der Ablauf bliebe stehen.
+    w.timer_spin.set_text("")
+    w._draw_next(by_timer=True)
+    check("leeres Feld mitten im Tippen schaltet den laufenden Timer nicht ab",
+          w.service.timer_seconds == 15 and w.timer.phase == "läuft")
+    w.timer_spin.set_value(0)  # Timer aus: die folgenden Schritte sollen nicht in eine Auflösung laufen
+
     w.pool_search.grab_focus()
     before = drawn()
     press(w, "space")
@@ -79,6 +115,18 @@ def scenario(w):
     before = drawn()
     press(w, "space")
     check("nach Mausklick wirkt die Leertaste wieder als Kürzel", drawn() == before + 1)
+
+    # Regression: Auch ein ECHTER Klick auf einen Knopf beendet die Tab-Navigation. Knöpfe verbrauchen den Klick
+    # selbst – das Fenster sah ihn nie, und die nächste Leertaste schaltete z. B. das Gewinnziel um.
+    w.win_buttons["volle_karte"].set_active(True)
+    w.nav.get_row_at_index(2).grab_focus()
+    press(w, "Tab")
+    check("Tab schaltet die Tastatur-Navigation ein", w.keyboard_navigating)
+    click(w, w.draw_button)
+    before = drawn()
+    press(w, "space")
+    check("echter Klick auf „Nächsten Song ziehen“ beendet die Tab-Navigation",
+          not w.keyboard_navigating and drawn() == before + 1 and w.service.win_target == "volle_karte")
 
     # Beamer hat den Fokus (zweiter Bildschirm): Tasten wirken trotzdem
     w.beamer_button.set_active(True)

@@ -68,6 +68,22 @@ def is_readable_file(path_text: str | None) -> bool:
         return False
 
 
+def default_window_size() -> tuple[int, int]:
+    """Startgröße des Hauptfensters, die auf den Bildschirm passt.
+
+    Die Kopfleiste (ca. 70 px) zählt bei set_default_size nicht mit: 1320×800 ergab ein rund 870 px hohes
+    Fenster – auf einem 1366×768-Laptop lagen Statuszeile und untere Bedienelemente unter dem Bildschirmrand.
+    """
+    width, height = 1320, 800
+    display = Gdk.Display.get_default()
+    monitor = (display.get_primary_monitor() or display.get_monitor(0)) if display is not None else None
+    if monitor is not None:
+        area = monitor.get_workarea()
+        width = max(1000, min(width, area.width - 20))
+        height = max(564, min(height, area.height - 90))
+    return width, height
+
+
 def cairo_available() -> bool:
     """Druck braucht die Cairo-Brücke von PyGObject (Paket python3-gi-cairo)."""
     try:
@@ -103,7 +119,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
                 self.set_icon_from_file(str(ICON_PATH))
             except GLib.Error:
                 self.set_icon_name("audio-x-generic")
-        self.set_default_size(1320, 800)
+        self.set_default_size(*default_window_size())
         self.set_size_request(1000, 640)
         self.store = FileStore()
         self.service = GameService()
@@ -139,7 +155,9 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.spotify_test_player: mpris.MprisPlayer | None = None
         self.spotify_test_running = False
         self.spotify_test_notes: list[str] = []  # Hinweise für den Ergebnisdialog
-        self.warning_kind = ""  # "follow" (Titel nicht auf den Karten) oder "spotify"
+        self.warning_kind = ""  # "follow" (Titel nicht auf den Karten), "spotify" oder "autoplay"
+        # Hinweis „Song-Timer läuft, Musik startet nicht von selbst“ von Hand ausgeblendet: nicht bei jedem Song neu
+        self.autoplay_hint_dismissed = False
         self.forecast_text = ""  # Prognose-Text der aktuellen Runde
         # Abend: Beamer, Aufdecken, Timer, Gewinner-Banner
         self.beamer: BeamerWindow | None = None
@@ -147,6 +165,9 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.banner = ""
         self.timer = SongTimer()
         self.timer_source = 0
+        # Gewinner eingetragen: Der Timer startet erst wieder, wenn die Spielleitung weitermacht – auch wenn der
+        # Player im Folgen-Modus inzwischen von selbst zum nächsten Titel wechselt.
+        self.timer_hold = False
         self.closing = False
 
         self.theme = "dark"
@@ -172,6 +193,12 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.connect("key-press-event", self._on_key)
         self.connect("key-release-event", self._on_key_release)
         self.connect("focus-out-event", lambda *_args: self._held_keys.clear() or False)
+        # In der Einfangphase: Knöpfe verbrauchen den Klick selbst, das Fenster sähe ihn sonst nie –
+        # nach einem versehentlichen Tab blieb der Tastaturmodus trotz Klick auf „Nächsten Song ziehen“ an.
+        self._pointer_gesture = Gtk.GestureMultiPress.new(self)
+        self._pointer_gesture.set_button(0)
+        self._pointer_gesture.set_propagation_phase(Gtk.PropagationPhase.CAPTURE)
+        self._pointer_gesture.connect("pressed", lambda *_args: self._on_pointer(self, None))
         self.connect("button-press-event", self._on_pointer)
         self.connect("delete-event", self._before_close)
         if catalog_errors:
@@ -368,7 +395,8 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             self._button("Vom Player einlesen …", self._read_from_player, icon="media-playlist-consecutive-symbolic",
                          tooltip="Die laufende Playlist in Spotify/YouTube Titel für Titel einlesen"),
             self._button("Zufallsmix …", self._random_mix, icon="media-playlist-shuffle-symbolic",
-                         tooltip="Zufällige Mischung aus aktuellen Charts und Weihnachtsliedern"),
+                         tooltip="Zufällige Mischung aus Chart-Hits (1990 bis heute, Listen wählbar) "
+                                 "und Weihnachtsliedern"),
             catalog_button,
             self._button("Als Playlist exportieren …", self._export_playlist, icon="document-save-as-symbolic",
                          tooltip="Text/CSV für Spotify-/YouTube-Import oder M3U"),
@@ -502,7 +530,8 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         for key in WIN_TARGETS:
             button = Gtk.RadioButton.new_with_label_from_widget(group, WIN_TARGET_LABELS[key])
             button.set_mode(False)
-            button.set_tooltip_text("Gewinnziel dieser Runde – „Bingo prüfen“ prüft genau dieses Ziel.")
+            button.set_tooltip_text("Gewinnziel dieser Runde – „Bingo prüfen“ prüft genau dieses Ziel. "
+                                    "Vor dem ersten Song gewählt, beginnen auch die nächsten Runden damit.")
             group = group or button
             button.connect("toggled", self._win_target_changed, key)
             win_box.pack_start(button, False, False, 0)
@@ -562,9 +591,13 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         controls.attach(self.verify_button, 3, 0, 1, 1)
         self.stage_button = self._button("Weiter: 2 Reihen", self._advance_stage, icon="go-next-symbolic",
                                          tooltip="Nächstes Gewinnziel – die Ziehung läuft weiter. "
-                                                 "Nach „Volle Karte“ beginnt eine neue Runde (neu gemischt).")
+                                                 "Nach „Volle Karte“ beginnt eine neue Runde (neu gemischt) "
+                                                 "mit dem Gewinnziel vom Rundenbeginn.")
         controls.attach(self.stage_button, 0, 1, 4, 1)
-        left.pack_start(controls, False, False, 0)
+        # Knöpfe und (darunter) die Warnung in einem Kasten: Die Warnung braucht ausgeblendet keinen Platz
+        controls_area = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        controls_area.pack_start(controls, False, False, 0)
+        left.pack_start(controls_area, False, False, 0)
 
 
         # Jetzt-Anzeige
@@ -606,9 +639,18 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.warning_skip_button = self._button("Überspringen", self._skip_unmatched,
                                                 icon="media-skip-forward-symbolic")
         warning.pack_end(self.warning_skip_button, False, False, 0)
-        warning.pack_end(self._button("Ausblenden", lambda *_: self._hide_warning(), "flat"), False, False, 0)
+        self.warning_autoplay_button = self._button(
+            "Automatisch abspielen", self._enable_autoplay, icon="media-playback-start-symbolic",
+            tooltip="Hakt „Beim Ziehen automatisch abspielen“ an und startet den aktuellen Song")
+        self.warning_autoplay_button.set_no_show_all(True)
+        warning.pack_end(self.warning_autoplay_button, False, False, 0)
+        warning.pack_end(self._button("Ausblenden", self._dismiss_warning, "flat"), False, False, 0)
         self.warning_revealer.add(warning)
-        left.pack_start(self.warning_revealer, False, False, 0)
+        # Direkt unter die Knöpfe: Weiter unten (nach Anzeige und Prognose) lag die Warnung auf einem
+        # 1366×768-Laptop unter dem sichtbaren Bereich – „Überspringen“ war nur nach Scrollen zu erreichen.
+        # Die Knöpfe darüber bleiben an ihrer Stelle.
+        warning.set_margin_top(14)
+        controls_area.pack_start(self.warning_revealer, False, False, 0)
 
         show_frame, show = self._panel("Beamer & Timer",
                                        "Beamer: zweites Fenster für die Gäste (Doppelklick/F11 = Vollbild). "
@@ -745,6 +787,10 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             self.reveal_spin.set_value(service.reveal_seconds)
             self.timer.configure(service.timer_seconds, service.reveal_seconds)
             self.timer.stop()
+            self.timer_hold = False
+            self.autoplay_hint_dismissed = False
+            if self.warning_kind == "autoplay":
+                self._hide_warning()
             self.banner = ""
             self.print_per_page = service.per_page
             self.follow_switch.set_active(False)
@@ -1147,8 +1193,10 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             cards = self.service.create_cards(size, free_space, count, self.diagonal_check.get_active())
             self._stop_all_playback()
             self._hide_warning()
+            self.autoplay_hint_dismissed = False
             self.last_track_identity = ""
             self.timer.stop()
+            self.timer_hold = False
             self.banner = ""
             self._set_revealed(False)
             self._sync_win_buttons()
@@ -1206,7 +1254,9 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
                                    "„Karten erzeugen“.", "muted", xalign=0.5, wrap=True), False, False, 0)
             self.cards_flow.add(empty)
         cell_width = {3: 104, 4: 80, 5: 64}.get(size, 64)
-        self.cards_flow.set_min_children_per_line(3 if size == 3 else 2)
+        # Mindestens zwei pro Zeile – drei kleine 3×3-Karten nebeneinander machten das Fenster breiter
+        # als einen 1366-px-Bildschirm (die Vorschau zeigt trotzdem so viele, wie Platz haben).
+        self.cards_flow.set_min_children_per_line(2)
         for number, card in enumerate(cards, start=1):
             frame = add_class(Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8), "bingo-card")
             head = add_class(Gtk.Box(), "card-head")
@@ -1409,31 +1459,58 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
                            "(z. B. wenn er gerade von Hand gespielt wurde).", "Markieren"):
             self._take_song(song, f"Von Hand markiert: {song.display_name}")
 
-    def _take_song(self, song: Song, status: str) -> None:
+    def _take_song(self, song: Song, status: str, automatic: bool = False) -> None:
         if self.service.draw_song(song):
             self._save()
             # Von Hand markiert: Die Warnung „nicht auf den Karten“ ist erledigt – sonst würde
             # „Überspringen“ den gerade markierten Song im Player weiterschalten.
             self._hide_warning()
-            self._new_song_started()
+            self._new_song_started(automatic, unattended=automatic)
             self._render_caller()
             self._set_status(status)
 
-    def _new_song_started(self) -> None:
-        """Nach jedem gezogenen Song: Titel verbergen, Banner weg, Timer neu starten."""
+    def _new_song_started(self, automatic: bool = False, unattended: bool = False) -> None:
+        """Nach jedem gezogenen Song: Titel verbergen, Banner weg, Timer neu starten.
+
+        ``automatic``: Der Player hat im Folgen-Modus von selbst weitergeschaltet. Ist gerade ein Gewinner
+        eingetragen worden, zählt der Song zwar, der Timer bleibt aber aus – sonst liefe die Ziehung während
+        der Ehrung alle paar Sekunden von selbst weiter.
+        ``unattended``: Niemand hat gerade gedrückt (Player oder Song-Timer haben weitergeschaltet).
+        """
         self._cancel_playback()
         self.banner = ""
         self._set_revealed(False)
+        if automatic and self.timer_hold:
+            return
+        self.timer_hold = False
+        self._commit_timer_fields(unattended)
         if self.service.game.caller.current is not None:
             self.timer.start()
 
-    def _draw_next(self, _button=None) -> None:
+    def _commit_timer_fields(self, unattended: bool = False) -> None:
+        """Eingetippte, aber noch nicht bestätigte Zahlen in „Song-Timer“ und „Auflösung“ übernehmen.
+
+        Ein Zahlenfeld übernimmt Getipptes erst mit Enter, Tab oder wenn es den Fokus verliert. Die Knöpfe der
+        Spielleitung nehmen beim Klick aber keinen Fokus, und die Leertaste zieht auch mit Fokus im Feld: Wer
+        „15“ tippte und dann zog, hatte „15“ im Feld stehen – der Timer blieb trotzdem aus.
+        ``unattended``: Schaltet der Timer oder der Player gerade von selbst weiter, wird ein leeres oder
+        unvollständiges Feld (mitten im Tippen) nicht übernommen – das hieße sonst 0 = „Timer aus“.
+        """
+        if not hasattr(self, "timer_spin"):
+            return
+        for spin in (self.timer_spin, self.reveal_spin):
+            if unattended and not spin.get_text().strip().isdigit():
+                continue
+            spin.update()
+
+    def _draw_next(self, _button=None, by_timer: bool = False) -> None:
         if _button is not None:
             # Doppelklick auf den Knopf zöge zwei Songs – der erste wäre nie zu hören gewesen
             now = GLib.get_monotonic_time() / 1e6
             if now - self._last_click_draw < 0.6:
                 return
             self._last_click_draw = now
+        self.timer_hold = False  # die Spielleitung macht weiter
         if self.follow_switch.get_active():
             if self.player:
                 self.player.next(on_error=lambda m: self._set_status(f"Player reagiert nicht: {m}"))
@@ -1442,10 +1519,59 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             self.audio_player.stop()
         if self.service.game.caller.draw_next():
             self._save()  # zuerst sichern: ein Fehler beim Zeichnen darf die Ziehung nicht kosten
-            self._new_song_started()
+            self._new_song_started(unattended=by_timer)
             self._render_caller()
             if self.service.auto_play:
                 self._play_audio(None, automatic=True)
+            else:
+                self._warn_timer_without_autoplay()
+
+    def _autoplay_would_start(self, song: Song | None) -> bool:
+        """Könnte „Beim Ziehen automatisch abspielen“ diesen Song starten (Spotify oder vorhandene Audiodatei)?"""
+        if song is None:
+            return False
+        target = self.service.playback_target
+        if target == "spotify":
+            return True
+        if target == "lokal":
+            return self.audio_player is not None and is_readable_file(self.service.audio_file_for(song))
+        return False  # YouTube: jeder Song öffnete ein Browserfenster – das bleibt eine bewusste Entscheidung
+
+    def _warn_timer_without_autoplay(self) -> None:
+        """Song-Timer an, „Beim Ziehen automatisch abspielen“ aus: Die Ziehung liefe stumm weiter.
+
+        Mit den Vorgaben der App zählte der Timer herunter, löste auf und zog den nächsten Song, ohne dass je
+        Musik lief – und die Statuszeile meldete „Spotify ist nicht verbunden“. Der Hinweis nennt die Ursache
+        und bietet den Haken direkt an. „Ausblenden“ merkt sich, dass von Hand abgespielt werden soll.
+        Die Statuszeile bleibt unberührt: Dort steht ggf. noch „bitte von Hand pausieren“ zum vorigen Titel.
+        """
+        if (self.autoplay_hint_dismissed or self.service.auto_play or not self.timer.enabled
+                or self.follow_switch.get_active() or self.warning_kind in ("follow", "spotify")
+                or not self._autoplay_would_start(self.service.game.caller.current)):
+            return
+        self.unmatched_track = None
+        self.warning_kind = "autoplay"
+        self.warning_label.set_markup(
+            "<b>Der Song-Timer läuft – die Musik startet aber nicht von selbst</b>\n"
+            "„Beim Ziehen automatisch abspielen“ ist aus. Einschalten oder jeden Song mit „Abspielen“ starten.")
+        self.warning_skip_button.set_visible(False)
+        self.warning_autoplay_button.set_visible(True)
+        self.warning_revealer.set_reveal_child(True)
+
+    def _enable_autoplay(self, _button=None) -> None:
+        """Aus dem Hinweis heraus: Haken setzen und den aktuellen Song jetzt richtig beginnen."""
+        self._hide_warning()
+        self.auto_play_check.set_active(True)  # speichert über _autoplay_changed
+        if self.service.game.caller.current is not None and self.timer.phase != "aus":
+            # Titel wieder verbergen, volle Spielzeit, Musik an
+            self._new_song_started()
+            self._render_caller()
+            self._play_audio(None, automatic=True)
+
+    def _dismiss_warning(self, _button=None) -> None:
+        if self.warning_kind == "autoplay":
+            self.autoplay_hint_dismissed = True
+        self._hide_warning()
 
     def _undo(self, _button=None) -> None:
         if self.audio_player:
@@ -1453,6 +1579,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self._cancel_playback()
         if self.service.game.caller.undo():
             self.timer.stop()
+            self.timer_hold = False
             self.banner = ""
             self._set_revealed(False)
             # Im Folgen-Modus den aktuellen Player-Titel NICHT neu bewerten – sonst
@@ -1466,7 +1593,8 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         if self.service.game.caller.index >= 0 and not dialogs.confirm(
             self, "Ziehung neu mischen?",
             f"Der bisherige Ziehfortschritt wird zurückgesetzt. Es beginnt Runde {self.service.round_number + 1} "
-            "mit „1 Reihe“; die Gewinnerliste bleibt erhalten.", "Neu mischen"
+            f"mit „{WIN_TARGET_LABELS[self.service.round_start_target]}“; die Gewinnerliste bleibt erhalten.",
+            "Neu mischen"
         ):
             return
         self._stop_all_playback()
@@ -1476,6 +1604,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         else:
             self.service.game.caller.reshuffle()
         self.timer.stop()
+        self.timer_hold = False
         self.banner = ""
         self._set_revealed(False)
         self.last_track_identity = ""
@@ -1548,7 +1677,8 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         except ValueError as error:
             dialogs.message(self, Gtk.MessageType.WARNING, "Nicht eingetragen", str(error))
             return
-        self.timer.stop()  # Stufe entschieden – weiter mit dem Stufen-Button
+        self.timer.stop()  # Stufe entschieden – weiter mit dem Stufen-Button oder dem nächsten Song
+        self.timer_hold = True
         self.banner = f"BINGO! Karte #{winner.card}" + (f" · {winner.name}" if winner.name else "")
         self._save()
         self._render_winners()
@@ -1560,16 +1690,21 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
     def _advance_stage(self, _button=None) -> None:
         if not self.service.game.cards:
             return
-        following, new_round = next_stage(self.service.win_target)
-        if new_round and not dialogs.confirm(
-            self, f"Runde {self.service.round_number + 1} starten?",
-            "Die Ziehung wird neu gemischt und beginnt wieder mit „1 Reihe“. "
-            "Die gedruckten Karten bleiben gültig, die Gewinnerliste bleibt erhalten.", "Neue Runde",
-        ):
-            return
+        _following, new_round = next_stage(self.service.win_target)
+        if new_round:
+            detail = ("Die Ziehung wird neu gemischt und beginnt wieder mit "
+                      f"„{WIN_TARGET_LABELS[self.service.round_start_target]}“. "
+                      "Die gedruckten Karten bleiben gültig, die Gewinnerliste bleibt erhalten.")
+            if self.follow_switch.get_active() and self.player is not None and self.player.is_playing():
+                # Im Folgen-Modus zählt alles, was läuft – auch der Titel, der gerade noch aus der alten Runde spielt
+                detail += ("\n\nPlayer folgen ist an: Der gerade laufende Titel zählt sofort als erster Song der "
+                           "neuen Runde. Soll sie später beginnen, vorher im Player pausieren.")
+            if not dialogs.confirm(self, f"Runde {self.service.round_number + 1} starten?", detail, "Neue Runde"):
+                return
         self.service.advance_stage()
         self._sync_win_buttons()
         self.timer.stop()
+        self.timer_hold = False
         self.banner = ""
         self._set_revealed(False)
         if new_round:
@@ -1577,7 +1712,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             self.last_track_identity = ""
         self._save()
         self._render_caller()
-        self._set_status(f"Runde {self.service.round_number} · Ziel: {WIN_TARGET_LABELS[following]}")
+        self._set_status(f"Runde {self.service.round_number} · Ziel: {WIN_TARGET_LABELS[self.service.win_target]}")
 
     def _sync_win_buttons(self) -> None:
         self._loading_state = True
@@ -1629,7 +1764,8 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
 
     def _restart_timer_in_follow(self) -> None:
         """Folgen-Modus: Auch bei bereits gezogenem/fremdem Titel weiterzählen, sonst bleibt der Timer stehen."""
-        if self.follow_switch.get_active() and self.timer.enabled and self.timer.phase == "aus":
+        if (self.follow_switch.get_active() and self.timer.enabled and self.timer.phase == "aus"
+                and not self.timer_hold):
             self.timer.start()
 
     def _modal_dialog_open(self) -> bool:
@@ -1663,7 +1799,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             if phase_before == "läuft" and not self._starts_automatically(upcoming):
                 self._pause_after_timer()
             if self.follow_switch.get_active() or more:
-                self._draw_next()
+                self._draw_next(by_timer=True)
             else:
                 self._set_status("Alle Songs gespielt – Timer angehalten.")
         if event or self.timer.phase != "aus":
@@ -1695,8 +1831,13 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         if self._loading_state:
             return
         seconds, reveal = self.timer_spin.get_value_as_int(), self.reveal_spin.get_value_as_int()
+        was_enabled = self.timer.enabled
         self.service.set_timer(seconds, reveal)
         self.timer.configure(seconds, reveal)
+        if not self.timer.enabled and self.warning_kind == "autoplay":
+            self._hide_warning()  # Timer aus: nichts zieht mehr von selbst weiter
+        if self.timer.enabled and not was_enabled:
+            self.autoplay_hint_dismissed = False  # Timer neu eingeschaltet: der Hinweis darf wieder kommen
         self._save()
         self._update_beamer()
 
@@ -1779,6 +1920,9 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         if self.audio_player:
             self.audio_player.stop()
         self._cancel_playback()
+        if self.warning_kind == "autoplay":
+            self._hide_warning()  # gehörte zum alten Wiedergabeziel
+        self.autoplay_hint_dismissed = False
         self.service.set_playback_target(key)
         if self.player and not self.follow_switch.get_active() and not self._player_fits_target(self.player.info):
             self._disconnect_player()
@@ -1856,6 +2000,8 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         if self._loading_state:
             return
         self.service.auto_play = self.auto_play_check.get_active()
+        if self.service.auto_play and self.warning_kind == "autoplay":
+            self._hide_warning()  # Haken von Hand gesetzt: der Hinweis ist erledigt
         self._save()
 
     def _pause_after_changed(self, _button) -> None:
@@ -1874,8 +2020,9 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             if self.player and self.player.info.is_spotify:
                 self.player.pause(on_error=lambda m: self._set_status(f"Spotify reagiert nicht: {m}"))
                 self._set_status("Spielzeit abgelaufen – Spotify pausiert.")
-            else:
-                # Titel lief über Webplayer/spotify:-Link – ohne Verbindung kann die App nicht pausieren
+            elif self.warning_kind != "autoplay":
+                # Titel lief über Webplayer/spotify:-Link – ohne Verbindung kann die App nicht pausieren.
+                # (Mit dem Hinweis „Musik startet nicht von selbst“ hat die App gar nichts gestartet.)
                 self._set_status("Spielzeit abgelaufen – Spotify ist nicht verbunden, bitte von Hand pausieren.")
         elif target == "lokal" and self.audio_player and self.audio_player.is_playing \
                 and not self.audio_player.is_paused:
@@ -2001,6 +2148,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             "<b>Spotify hat den Titel nicht gestartet – bitte in Spotify prüfen</b>\n"
             f"{escape(song.display_name)}")
         self.warning_skip_button.set_visible(False)
+        self.warning_autoplay_button.set_visible(False)
         self.warning_revealer.set_reveal_child(True)
         self._set_status(f"Spotify hat den Titel nicht gestartet: {song.display_name}")
 
@@ -2306,6 +2454,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             self.unmatched_track = track
             self.warning_kind = "follow"
             self.warning_skip_button.set_visible(True)
+            self.warning_autoplay_button.set_visible(False)
             self.warning_label.set_markup(
                 f"<b>Läuft im Player, steht aber nicht auf den Karten:</b>\n{escape(track.label)}\n"
                 "<small>Überspringen oder rechts per Doppelklick den passenden Song markieren.</small>")
@@ -2320,7 +2469,8 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             self._restart_timer_in_follow()
             self._render_caller()
             return
-        self._take_song(song, f"Aus {self.player.info.identity if self.player else 'Player'} übernommen: {song.display_name}")
+        self._take_song(song, f"Aus {self.player.info.identity if self.player else 'Player'} übernommen: {song.display_name}",
+                        automatic=True)
 
     def _skip_unmatched(self, _button) -> None:
         self._hide_warning()
@@ -2332,10 +2482,12 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.warning_kind = ""
         if hasattr(self, "warning_revealer"):
             self.warning_revealer.set_reveal_child(False)
+            self.warning_autoplay_button.set_visible(False)
 
     def _follow_toggled(self, switch: Gtk.Switch, _param) -> None:
         if self._loading_state:
             return
+        self.timer_hold = False
         if switch.get_active():
             if not self.service.game.cards:
                 dialogs.message(self, Gtk.MessageType.INFO, "Erst Karten erzeugen",
@@ -2348,6 +2500,8 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
                 switch.set_active(False)
                 return
             self.service.follow_player = True
+            if self.warning_kind == "autoplay":
+                self._hide_warning()  # im Folgen-Modus spielt der Player selbst
             if self.audio_player:
                 self.audio_player.stop()
             self.last_track_identity = ""
@@ -2644,6 +2798,21 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
                 "Mit Kartennummer: Nummer eingeben → Karte mit Gewinnlinie wird angezeigt.",
                 "Ohne Kartennummer (unleserlich, fehlt): „Ohne Kartennummer …“ → die vorgelesenen Songs "
                 "der Gewinnreihe anhaken → die App zeigt, ob alle gespielt sind, und findet die Karte.",
+            ]),
+            ("Runden & Gewinnziel", [
+                "Gewinnziel oben rechts wählen. Vor dem ersten Song gewählt, beginnen auch die nächsten Runden "
+                "damit – z. B. den ganzen Abend nur „Volle Karte“.",
+                "„Neue Runde“ mischt neu; die gedruckten Karten und die Gewinnerliste bleiben.",
+                "Nach „Als Gewinner eintragen“ bleibt der Song-Timer aus, bis du weitermachst "
+                "(Leertaste oder Stufen-Knopf).",
+            ]),
+            ("Song-Timer & Musik", [
+                "Song-Timer (s) größer 0: Nach der Spielzeit wird der Titel aufgelöst, danach zieht die App "
+                "den nächsten Song.",
+                "Soll die App die Songs dabei selbst starten (Spotify-Link oder lokale Datei): unter den Knöpfen "
+                "„Abspielen/Pause“ den Haken „Beim Ziehen automatisch abspielen“ setzen. Ohne den Haken zieht "
+                "der Timer weiter, ohne dass Musik läuft – die App weist dann darauf hin.",
+                "Mit „Player folgen“ spielt der Player selbst; der Timer schaltet ihn weiter.",
             ]),
         ])
 

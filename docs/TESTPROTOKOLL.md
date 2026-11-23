@@ -1,15 +1,15 @@
 # Prüfprotokoll
 
-Stand: 20.11.2026 (v2.5.1) · Umgebung: Ubuntu 24.04 (= Basis Linux Mint 22), Python 3.12, GTK 3.24, Xvfb
+Stand: 23.11.2026 (v2.5.1 + Abendprüfung) · Umgebung: Ubuntu 24.04 (= Basis Linux Mint 22), Python 3.12, GTK 3.24, Xvfb
 
 ## Automatisch (auch in der GitHub-Pipeline)
 
 | Suite | Tests | Ergebnis |
 |---|---|---|
-| Unit (Gewinngarantie, Prognose, Abend-Logik, Timer, Songliste-Fuzzing mit 40 000 Zufallsfällen, Kartensuche, Spotify-Links, Spotify-Prüfliste, CSV ohne Raten, ungültige Zeichen im Spielstand, Jahrzehnt-Kataloge) | 159 | ✅ |
+| Unit (Gewinngarantie, Prognose, Abend-Logik, Timer, Songliste-Fuzzing mit 40 000 Zufallsfällen, Kartensuche, Spotify-Links, Spotify-Prüfliste, CSV ohne Raten, ungültige Zeichen im Spielstand, Jahrzehnt-Kataloge, Startziel der Runde, Tabellen-Text) | 170 | ✅ |
 | Integration (Spotify-/YouTube-Simulation inkl. hängendem, verzögertem und umverknüpftem Spotify, Abspiel-Kontrolle, GStreamer-Netzwerksperre, Druck, Installer, Update-Skript, Sicherungen, Release-Bau) | 79 | ✅ |
-| Sicherheit (u. a. Windows-/UTF-16-Dateien, präparierte Umleitungsdateien ohne Netz) | 21 | ✅ |
-| GUI/E2E unter Xvfb (Gesamtablauf, Abend-Funktionen, Spotify-Abspielen in 11 Varianten, Spotify-Links, YouTube im Browser, echte Tastendrücke, Prüfen ohne Kartennummer, Grenzfälle, Kontrast, Fensterklasse, Mindestgröße 1366×768, Screenshots; „wie am Abend“ auf 1366×768 mit echten Dialogen, gehaltenen Tasten, Mausklicks und Speicherfehler) | 14 | ✅ |
+| Sicherheit (u. a. Windows-/UTF-16-Dateien auch als *.txt, präparierte Umleitungsdateien ohne Netz) | 21 | ✅ |
+| GUI/E2E unter Xvfb (Gesamtablauf, Abend-Funktionen, Spotify-Abspielen in 12 Varianten, Spotify-Links, YouTube im Browser, echte Tastendrücke, Prüfen ohne Kartennummer, Grenzfälle, Kontrast, Fensterklasse, Mindestgröße 1366×768, Screenshots; „wie am Abend“ auf 1366×768 mit echten Dialogen, gehaltenen Tasten, Mausklicks und Speicherfehler; Abend nur mit „Volle Karte“ über mehrere Runden; Beamer auf 1280×720 und 1024×768) | 16 | ✅ |
 | ruff (Fehler, Bugs, bandit-Sicherheitsregeln), shellcheck | – | ✅ |
 
 In der CI ist ein fehlendes GUI-Werkzeug (xvfb-run, xdotool, xprop …) ein Fehler, kein Überspringen.
@@ -89,6 +89,24 @@ Tastenkürzel wirkten nicht. Ursache: GTK schaltet bei jedem echten Tastendruck 
 - Jeder neue Test schlägt mit dem alten Code fehl (geprüft).
 
 Nicht prüfbar ohne echtes Gerät: echtes Spotify (Startzeit, Umverknüpfung, Verhalten bei Hängern), Fenster unter Cinnamon mit Panel, Beamer, Lautsprecher.
+
+## Abendprüfung (v2.5.1 + Jahrzehnt-Listen, Prüfer: Claude Fable 5.2)
+
+Geprüft wurde der geplante Abend: 3×3-Karten, nur „Volle Karte“, mehrere Runden mit denselben Karten, Song-Timer 15 s + 5 s, Spotify (Songs per Link oder „Player folgen“), Laptop 1366×768 mit Beamer. Die Korrekturen aus 2.5.1 hielten (alle Nachstellungen der dritten Gesamtprüfung wiederholt). Neu gefunden und behoben, jeweils mit Regressionstest, der mit dem alten Code fehlschlägt:
+
+- eingetippter Song-Timer galt ohne Enter/Tab nicht („15“ im Feld, Timer aus)
+- Song-Timer ohne „Beim Ziehen automatisch abspielen“ (Vorgabe): Die Ziehung lief stumm weiter, ohne Hinweis
+- Warnkasten lag auf 1366×768 unter dem sichtbaren Bereich (5 von 62 px zu sehen)
+- Gewinnziel sprang bei jeder neuen Runde auf „1 Reihe“ zurück (Beamer zeigte den Gästen das falsche Ziel)
+- Folgen-Modus: Der Song-Timer lief nach eingetragenem Gewinner von selbst wieder an, sobald Spotify den Titel wechselte
+- Beamer mit 1280×720/1024×768: „Zuletzt“ lag über dem BINGO-Banner
+- Klick auf einen Knopf beendete die Tastatur-Navigation nicht
+- 3×3: Fenster mindestens 1380 px breit; Startgröße 876 px hoch
+- Excel-„Unicode-Text (*.txt)“ und kopierte Tabellenzellen wurden als Textliste gelesen
+- ein GUI-Test schlug in rund 2 % der Läufe zufällig fehl
+
+Offen und für den Abend wichtig: Tab oder Pfeiltasten schalten weiterhin die Tastatur-Navigation ein (danach bedient die Leertaste das markierte Element, bis geklickt wird).
+Nicht prüfbar: Verhalten unter Cinnamon (Maximieren, Vollbild auf dem zweiten Bildschirm), echtes Spotify, echter Beamer.
 
 ## Vor der Feier einmal von Hand (echter Rechner)
 

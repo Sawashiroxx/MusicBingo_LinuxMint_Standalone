@@ -174,6 +174,10 @@ def scenario(w):
     robot = DialogRobot()
     from musik_bingo.domain.models import Song
 
+    # 0. Startgröße: get_size() zählt die Kopfleiste nicht mit – 1320×800 war in Wahrheit 876 px hoch
+    frame = w.get_window().get_frame_extents()
+    check(f"Startfenster passt ohne Zutun auf 1366×768 ({frame.width}×{frame.height} px mit Kopfleiste)",
+          frame.width <= 1366 and frame.height <= SCREEN_HEIGHT)
     w.resize(1320, 700)  # maximiertes Fenster auf 1366×768 (Platz für Rahmen, Kopfleiste, Panel)
     songs = [Song(t, a) for t, a in LONG_SONGS + SHORT_SONGS] + [Song(f"Titel {i}", f"Interpret {i}") for i in range(64)]
     w.song_buffer.set_text("\n".join(s.display_name for s in songs))

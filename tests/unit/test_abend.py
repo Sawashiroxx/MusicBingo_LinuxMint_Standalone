@@ -64,6 +64,56 @@ class StageTests(unittest.TestCase):
             GameService().advance_stage()
 
 
+class RoundStartTargetTests(unittest.TestCase):
+    """Abend nur mit „Volle Karte“: Jede neue Runde begann wieder mit „1 Reihe“ – auch auf dem Beamer."""
+
+    def test_new_round_starts_with_target_chosen_before_first_song(self):
+        svc = service()
+        svc.set_win_target("volle_karte")  # vor dem ersten Song gewählt = Startziel
+        for _ in range(12):
+            svc.game.caller.draw_next()
+        self.assertEqual(svc.advance_stage(), ("volle_karte", True))
+        self.assertEqual((svc.round_number, svc.win_target, svc.game.caller.drawn), (2, "volle_karte", []))
+        svc.game.caller.draw_next()
+        self.assertEqual(svc.advance_stage(), ("volle_karte", True))  # auch Runde 3, ohne neu einzustellen
+        self.assertEqual((svc.round_number, svc.win_target), (3, "volle_karte"))
+
+    def test_target_change_during_round_does_not_move_the_start(self):
+        svc = service()
+        svc.game.caller.draw_next()
+        svc.set_win_target("volle_karte")  # mitten in der Runde: Stufe übersprungen, Startziel bleibt „1 Reihe“
+        self.assertEqual(svc.round_start_target, "reihe")
+        self.assertEqual(svc.advance_stage(), ("reihe", True))
+
+    def test_stage_button_keeps_classic_order(self):
+        svc = service()
+        self.assertEqual([svc.advance_stage(), svc.advance_stage(), svc.advance_stage()],
+                         [("zwei_reihen", False), ("volle_karte", False), ("reihe", True)])
+        self.assertEqual(svc.round_start_target, "reihe")
+
+    def test_reshuffle_round_and_new_cards(self):
+        svc = service()
+        svc.set_win_target("zwei_reihen")
+        svc.game.caller.draw_next()
+        svc.restart_round()  # „Neu mischen“ mitten im Spiel
+        self.assertEqual((svc.round_number, svc.win_target), (2, "zwei_reihen"))
+        svc.create_cards(5, True, 10)  # neue Karten = neuer Abend
+        self.assertEqual((svc.win_target, svc.round_start_target), ("reihe", "reihe"))
+
+    def test_start_target_is_saved_and_validated(self):
+        svc = service()
+        svc.set_win_target("volle_karte")
+        svc.game.caller.draw_next()
+        data = svc.to_dict()
+        restored = GameService.from_dict(copy.deepcopy(data))
+        self.assertEqual(restored.advance_stage(), ("volle_karte", True))
+        del data["settings"]["round_start_target"]  # Stand aus 2.5.1: wie bisher „1 Reihe“
+        self.assertEqual(GameService.from_dict(copy.deepcopy(data)).round_start_target, "reihe")
+        data["settings"]["round_start_target"] = "jackpot"
+        with self.assertRaisesRegex(ValueError, "Start-Gewinnziel"):
+            GameService.from_dict(data)
+
+
 class WinnerTests(unittest.TestCase):
     def test_only_real_winners_can_be_entered(self):
         svc = service()

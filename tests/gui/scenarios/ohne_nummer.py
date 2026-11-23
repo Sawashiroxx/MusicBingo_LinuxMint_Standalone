@@ -56,13 +56,20 @@ def scenario(w):
     from musik_bingo.domain.card_generator import winning_lines
     from musik_bingo.presentation import dialogs
 
+    from musik_bingo.domain.forecast import card_status
+
     w.song_buffer.set_text("\n".join(f"Song {i:02d} – Interpret {i}" for i in range(40)))
     w.size_combo.set_active(2)  # 5×5
     w.count_spin.set_value(160)
-    w._generate(None)
-    game = w.service.game
-    target = game.cards[41]  # Karte #42
-    line = target.songs[:5]  # erste Reihe (Freifeld liegt in der Mitte)
+    for _attempt in range(50):
+        w._generate(None)
+        game = w.service.game
+        target = game.cards[41]  # Karte #42
+        line = target.songs[:5]  # erste Reihe (Freifeld liegt in der Mitte)
+        # Mittlere Reihe/Spalte brauchen wegen des Freifelds nur 4 Songs: In rund 2 % der zufälligen Kartensätze
+        # erreicht eine zweite Karte mit denselben 5 Songs „1 Reihe“ – dann stimmen die Erwartungen unten nicht.
+        if not any(card_status(card, 5, True, line)[0] for number, card in enumerate(game.cards, start=1) if number != 42):
+            break
     for song in line:
         game.caller.draw_song(song)
     w._render_caller()

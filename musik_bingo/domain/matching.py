@@ -44,19 +44,28 @@ def _artist_matches(wanted: set[str], song_artist: str) -> bool:
     )
 
 
+def title_keys(title: str) -> list[str]:
+    """Vergleichsschlüssel eines Titels: zuerst ohne Zusätze („(Official Video)“, „(with …)“), dann vollständig.
+
+    Der vollständige Schlüssel fängt Titel ab, deren Klammer zum Namen gehört: „Killing Me Softly (With His Song)“
+    wird bereinigt zu „Killing Me Softly“ (die Klammer sieht aus wie ein Gastinterpret) und passte sonst nicht zu
+    einem Player, der „Killing Me Softly With His Song“ meldet.
+    """
+    keys = [normalize(clean_title(title)), normalize(title)]
+    return [key for index, key in enumerate(keys) if key and key not in keys[:index]]
+
+
 class SongMatcher:
     def __init__(self, pool: list[Song]):
         self.pool = list(pool)
         self.by_link = {song.link: song for song in self.pool if song.link}
         self.by_title: dict[str, list[Song]] = {}
         for song in self.pool:
-            self.by_title.setdefault(normalize(clean_title(song.title)), []).append(song)
+            for key in title_keys(song.title):
+                self.by_title.setdefault(key, []).append(song)
 
     def _pick(self, title: str, artist_text: str) -> Song | None:
-        key = normalize(clean_title(title))
-        if not key:
-            return None
-        candidates = self.by_title.get(key, [])
+        candidates = next((self.by_title[key] for key in title_keys(title) if key in self.by_title), [])
         if not candidates:
             return None
         wanted = artist_tokens(artist_text) if artist_text else set()
@@ -132,7 +141,7 @@ def is_same_song(track: PlayingTrack | None, song: Song | None) -> bool:
     """
     if track is None or song is None or not track.title.strip():
         return False
-    if normalize(clean_title(track.title)) != normalize(clean_title(song.title)):
+    if not set(title_keys(track.title)) & set(title_keys(song.title)):
         return False
     wanted = normalize(song.artist)
     reported = [normalize(part) for part in [track.artist, *track.artist.split(",")] if part.strip()]

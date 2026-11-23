@@ -24,7 +24,7 @@ musik_bingo/
 | `domain/link_coverage.py` | Abdeckung einer Songliste: mit Spotify-/YouTube-Link, ohne Link, Songs ohne Spotify-Link |
 | `domain/text.py` | Normalisieren, „(Official Video)“, „Remastered“, „feat.“ entfernen |
 | `domain/catalog.py` | Kataloge lesen, Zufallsmix Charts/Weihnachten |
-| `domain/playlist.py` | Import CSV/M3U/Text/Player, Export Text/CSV/M3U |
+| `domain/playlist.py` | Import CSV/M3U/Text/Player (Tab-getrennte Tabellen mit Kopfzeile auch ohne Endung .csv), Export Text/CSV/M3U |
 | `domain/matching.py` | Laufenden Titel einem Song zuordnen, Playlist-Abgleich, Links aus der Playlist übernehmen |
 | `domain/card_generator.py` | Karten erzeugen, Gewinnlinien prüfen |
 | `domain/evening.py` | Ablauf des Abends: Stufen/Runden, Gewinner mit Doppel-Schutz, Feiertitel, CSV-Export |
@@ -50,22 +50,24 @@ musik_bingo/
 - **Prognose:** Pro simuliertem Spiel genügt die Ziehposition jedes Songs: Eine Linie ist voll beim Maximum ihrer Felder. 200 Spiele mit 160 Karten dauern < 0,5 s. Tests vergleichen das Ergebnis exakt mit Song-für-Song-Nachspielen.
 - **Song-Identität:** Titel + Interpret (ohne Groß-/Kleinschreibung). Der Link gehört nicht dazu.
 - **Links nachtragen:** `GameService.set_song_links` setzt/entfernt Links per Song-Identität gleichzeitig in Editorliste (`song_text`), Runde, allen Karten und der Ziehung (Pool/Reihenfolge). Karten, Ziehung und Gewinnprüfung bleiben unverändert; ungültige Links → `ValueError`, nichts wird geändert. *Mit Playlist abgleichen* überträgt so Links aus der Playlist auf Songs ohne Link.
-- **Zuordnung (Folgen-Modus):** Spotify-ID → Titel + Interpret → eindeutiger Titel. Mehrdeutiges wird nicht geraten, unbekannte Titel werden nie gezogen, Werbung wird ignoriert.
+- **Zuordnung (Folgen-Modus):** Spotify-ID → Titel + Interpret → eindeutiger Titel. Der Titel wird ohne Zusätze („(Official Video)“, „(with …)“) und zusätzlich vollständig verglichen – so passt „Killing Me Softly (With His Song)“ auch zu „Killing Me Softly With His Song“. Mehrdeutiges wird nicht geraten, unbekannte Titel werden nie gezogen, Werbung wird ignoriert.
 - **Abspielen:** Spotify-Link + laufende App → MPRIS `OpenUri`; sonst `spotify:`-Schema → Webplayer/Suche. YouTube → Browser (`youtube.com`).
 - **Abspiel-Kontrolle (Spotify):** Nach `OpenUri` wird bis ca. 2,5 s asynchron beobachtet (PropertiesChanged + `GetAll`): richtiger Titel mit „Playing“ → „Läuft in Spotify“. Richtig ist er bei passendem Link (`mpris:trackid`/`xesam:url`) oder – Spotifys „Relinking“ – bei anderer Track-ID mit gleicher Song-Identität. Richtiger Titel pausiert → einmal `Play()`; hat sich gar nichts getan (noch derselbe Eintrag wie vor dem Öffnen) → einmal `OpenUri` wiederholen; hat Spotify schon gewechselt und lädt nur, wird nicht neu geöffnet, sondern noch einmal gewartet. Danach nicht-modale Warnung – die Kontrolle beobachtet aber still bis 30 s weiter und nimmt die Warnung zurück („Läuft jetzt in Spotify“), sobald der Titel doch läuft. Ein neuer Song und „Nach Ablauf pausieren“ brechen die Kontrolle ab.
 - **Hängender Player:** Besitzt ein Prozess den MPRIS-Namen, antwortet aber nicht, blockiert die Oberfläche höchstens ca. 1 s (`list_players` fragt alle Namen parallel mit Zeitbudget ab; `MprisPlayer` lädt seine Eigenschaften asynchron statt per `DBusProxy`-Standard mit 25 s). `OpenUri` ohne Antwort → „Spotify reagiert nicht“ und Rückfall wie bei abgelehntem `OpenUri`.
 - **Spotify testen – Testsong:** vor Spielbeginn der erste Song mit Link; in einer laufenden Runde nur der aktuelle oder ein bereits gezogener Song, nie ein noch nicht gezogener (sonst Test ohne Abspielen mit Hinweis).
 - **Spotify-Autostart:** Song mit Spotify-Link, aber Spotify nicht am Bus → Desktop-App per `Gio.DesktopAppInfo` starten, bis 15 s auf `org.mpris.MediaPlayer2.spotify` warten, dann `OpenUri` + Kontrolle; sonst bisheriger Rückfall.
 - **Nach Ablauf pausieren:** Beim Übergang Spielzeit → Auflösung pausiert die App Spotify (MPRIS) bzw. die lokale Datei; nicht im Folgen-Modus und nicht bei YouTube.
+- **Warnkasten (Spielleitung):** direkt unter den Knöpfen, damit er auch auf 1366×768 ohne Scrollen zu sehen ist; die Knöpfe darüber bewegen sich nicht. Drei Arten: Titel läuft, steht aber nicht auf den Karten (Folgen-Modus, mit „Überspringen“); Spotify hat den Titel nicht gestartet; Song-Timer läuft, aber „Beim Ziehen automatisch abspielen“ ist aus (Spotify oder vorhandene lokale Datei – mit Knopf „Automatisch abspielen“; „Ausblenden“ unterdrückt den Hinweis, bis Timer oder Wiedergabeziel neu gewählt werden).
 - **Player-Wahl (MPRIS):** Spotify → nur Spotify; YouTube → Browser. Ein gespeicherter Player hat Vorrang, wenn er zum Ziel passt.
 - **Stufen:** 1 Reihe → 2 Reihen → Volle Karte bei weiterlaufender Ziehung (passt zur Prognose); danach neue Runde mit neu gemischter Ziehung. Neue Karten setzen Runde und Gewinnerliste zurück (alte Stände liegen in `sicherungen/`).
-- **Gewinner:** nur eintragbar, wenn die Karte das aktuelle Ziel erreicht hat; gleiche Karte und Stufe nie doppelt, andere Stufe nur nach Rückfrage.
-- **Beamer:** zeigt den aktuellen Titel erst nach Aufdecken; „Zuletzt“ enthält nur vorherige Songs.
+- **Startziel der Runde:** Das Gewinnziel, das vor dem ersten Song der Runde von Hand gewählt wird (`round_start_target`, sonst „1 Reihe“). Neue Runden – Stufen-Button nach „Volle Karte“ oder „Neu mischen“ mitten im Spiel – beginnen wieder damit. So bleibt ein Abend nur mit „Volle Karte“ über alle Runden bei diesem Ziel; ein Wechsel mitten in der Runde ändert das Startziel nicht.
+- **Gewinner:** nur eintragbar, wenn die Karte das aktuelle Ziel erreicht hat; gleiche Karte und Stufe nie doppelt, andere Stufe nur nach Rückfrage. Nach dem Eintragen bleibt der Song-Timer aus, bis die Spielleitung weitermacht (Leertaste, Stufen-Button) – auch wenn der Player im Folgen-Modus von selbst zum nächsten Titel wechselt (der Titel zählt dann trotzdem).
+- **Beamer:** zeigt den aktuellen Titel erst nach Aufdecken; „Zuletzt“ enthält nur vorherige Songs. Passt der Inhalt nicht in die Höhe (z. B. 1280×720 mit zweizeiligem Titel und BINGO-Banner), wird die Schrift stufenweise verkleinert (bis 50 %); die Mindestgröße des Fensters hängt nicht von der Textmenge ab.
 - **Offline:** Die App öffnet keine Netzwerkverbindungen. MPRIS läuft über den lokalen Sitzungsbus.
 
 ## Spielstand
 
-JSON mit `version: 1`, atomar geschrieben, Dateirechte 0600 (nur der Benutzer). Neue Felder (`link`, `playback_target`, `follow_player`, `player_name`, `pause_after_timer` – Standard an) sind optional, alte Stände laden weiter. Beim Import werden Typen, Kartenregeln, Ziehreihenfolge und Links geprüft; ungültige Dateien werden abgelehnt, statt still repariert zu werden.
+JSON mit `version: 1`, atomar geschrieben, Dateirechte 0600 (nur der Benutzer). Neue Felder (`link`, `playback_target`, `follow_player`, `player_name`, `pause_after_timer` – Standard an, `round_start_target` – Standard „reihe“) sind optional, alte Stände laden weiter. Beim Import werden Typen, Kartenregeln, Ziehreihenfolge und Links geprüft; ungültige Dateien werden abgelehnt, statt still repariert zu werden.
 
 ## Kataloge
 

@@ -225,6 +225,24 @@ class MatcherTests(unittest.TestCase):
         matcher = SongMatcher([Song("Song", "A"), Song("Song", "B")])
         self.assertIsNone(matcher.find(PlayingTrack("Song", "Sony Music")))
 
+    def test_bracket_that_belongs_to_the_title(self):
+        """„(With His Song)“ sieht aus wie ein Gastinterpret – der Titel aus der 1990er-Liste wurde nicht erkannt,
+        wenn der Player ihn ohne Klammer meldet (Folgen-Modus, Playlist-Abgleich, Abspiel-Kontrolle)."""
+        from musik_bingo.domain.matching import is_same_song, links_from_playlist
+        fugees = Song("Killing Me Softly (With His Song)", "Fugees")
+        matcher = SongMatcher([fugees, Song("Señorita", "Shawn Mendes & Camila Cabello")])
+        for reported in ("Killing Me Softly With His Song", "Killing Me Softly (With His Song)", "Killing Me Softly"):
+            with self.subTest(reported=reported):
+                self.assertEqual(matcher.find(PlayingTrack(reported, "Fugees, Ms. Lauryn Hill")), fugees)
+                self.assertTrue(is_same_song(PlayingTrack(reported, "Fugees"), fugees))
+        # weiterhin: Gastinterpret in Klammern wird entfernt, fremde Fassung nicht geraten
+        self.assertEqual(matcher.find(PlayingTrack("Señorita (with Camila Cabello)", "Shawn Mendes")).title, "Señorita")
+        self.assertIsNone(matcher.find(PlayingTrack("Killing Me Softly With His Song", "Roberta Flack")))
+        self.assertFalse(is_same_song(PlayingTrack("Killing Me Softly With His Song", "Roberta Flack"), fugees))
+        link = "spotify:track:0Q0IVlqMV64kNLlwjPj0Hl"
+        playlist = [Song("Killing Me Softly With His Song", "Fugees", link)]
+        self.assertEqual(links_from_playlist([fugees], playlist), {fugees.key: link})
+
     def test_compare_with_playlist(self):
         playlist = [Song("Last Christmas", "Wham!"), Song("Stille Nacht"), Song("Highway to Hell", "AC/DC")]
         missing, extra = compare_with_playlist(self.pool, playlist)
@@ -321,6 +339,15 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual([c.name for c in catalogs], sorted(c.name for c in catalogs))
         result = random_mix([], unique_songs(catalogs[:1]), 50, 0, random.Random(7))
         self.assertEqual((len(result.songs), result.shortfall), (50, 0))
+
+    def test_catalog_entries_are_playable_songs(self):
+        """„ABBA-esque“ (Erasure, Jahrescharts 1992) ist eine EP mit vier Titeln – als Song weder zu erkennen noch
+        in Spotify als einzelner Titel zu finden. Auf der Karte steht deshalb ihr bekanntester Titel."""
+        text = (CATALOG_DIR / "charts_1990er.txt").read_text(encoding="utf-8")
+        titles = {song.title for song in parse_catalog("charts_1990er", text).songs}
+        self.assertNotIn("ABBA-esque", titles)
+        self.assertIn("Take A Chance On Me", titles)
+        self.assertEqual(len(titles), 97)
 
     def test_catalog_errors(self):
         with self.assertRaisesRegex(ValueError, "kategorie"):

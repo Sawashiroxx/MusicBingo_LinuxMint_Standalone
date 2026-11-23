@@ -184,6 +184,16 @@ def parse_m3u(text: str, order: str = ORDER_ARTIST_TITLE) -> ImportResult:
     return collector.result
 
 
+def _is_table_with_header(text: str) -> bool:
+    """Tab-getrennte Tabelle mit erkennbarer Titelspalte in der ersten Zeile.
+
+    So sehen Excels „Unicode-Text (*.txt)“ und aus einer Tabelle kopierte Zellen aus. Als Textliste gelesen
+    würde die Kopfzeile zum Song und jede Zeile zu einem Titel mit Tabulator, aber ohne Interpret.
+    """
+    first = text.split("\n", 1)[0]
+    return "\t" in first and _find_column(first.split("\t"), _TITLE_COLUMNS) is not None
+
+
 def parse_playlist(text: str, filename: str = "", order: str = ORDER_AUTO) -> ImportResult:
     """Wählt den passenden Leser anhand der Dateiendung bzw. des Inhalts."""
     lower = filename.casefold()
@@ -192,6 +202,8 @@ def parse_playlist(text: str, filename: str = "", order: str = ORDER_AUTO) -> Im
         return parse_m3u(text, ORDER_ARTIST_TITLE if order == ORDER_AUTO else order)
     if lower.endswith((".csv", ".tsv")):
         return parse_csv(text)
+    if _is_table_with_header(stripped):
+        return parse_csv(stripped)
     return parse_text(text, order)
 
 

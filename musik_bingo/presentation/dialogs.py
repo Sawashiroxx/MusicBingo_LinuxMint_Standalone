@@ -232,6 +232,11 @@ def import_playlist_dialog(parent: Gtk.Window) -> tuple[ImportResult, str] | Non
 
 # ------------------------------------------------------------ Zufallsmix
 
+# Median aus der Prognose (140–160 Karten, 30–100 Songs): 3×3 ≈ 53–63 %, 4×4 ≈ 74–80 %, 5×5 ≈ 83–93 % der Liste.
+MIX_RULE_OF_THUMB = ("Faustregel bei rund 150 Karten: Die erste volle Karte fällt nach ≈ 55 % der Songs (3×3), "
+                     "≈ 75 % (4×4) oder ≈ 85 % (5×5). Dauer = gespielte Songs × Zeit je Song: 50 Songs mit 3×3 "
+                     "und 20 s je Song ≈ 10 Minuten, 75 Songs mit 5×5 und 1 Minute je Song ≈ 1 Stunde.")
+
 
 def mix_dialog(parent: Gtk.Window, catalogs: list[Catalog]) -> tuple[MixResult, str] | None:
     dialog, content, ok = base_dialog(parent, "Zufallsmix: Charts & Weihnachten", "Mix erstellen", 600)
@@ -242,8 +247,7 @@ def mix_dialog(parent: Gtk.Window, catalogs: list[Catalog]) -> tuple[MixResult, 
 
     total = Gtk.SpinButton.new_with_range(9, 500, 1)
     total.set_value(75)
-    content.pack_start(field("Anzahl Songs", total, "Faustregel 5×5: ca. 1 Song pro Minute, volle Karte nach "
-                                                   "≈ 85 % der Songs. 75 Songs ≈ 1 Stunde."), False, False, 0)
+    content.pack_start(field("Anzahl Songs", total, MIX_RULE_OF_THUMB), False, False, 0)
     share = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 5)
     share.set_value(40)
     share.set_value_pos(Gtk.PositionType.RIGHT)
