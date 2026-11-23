@@ -2,6 +2,7 @@
 
 ## Unveröffentlicht
 
+- Spotify verdeckt die Steuerung nicht mehr: Die Spotify-App für Linux springt bei jedem neuen Titel selbst in den Vordergrund. Die Steuerung holt sich danach automatisch zurück. Das passiert nur, wenn sie vorher vorn war, nie über einen offenen Dialog der App hinweg und nicht bei YouTube.
 - Zufallsmix: Neue Listen mit deutschen Hits 1990 bis 2024, aus den offiziellen Single-Jahrescharts, jeweils Platz 1–10 je Jahr:
   - 1990er-Hits (97 Songs)
   - 2000er-Hits (99 Songs)

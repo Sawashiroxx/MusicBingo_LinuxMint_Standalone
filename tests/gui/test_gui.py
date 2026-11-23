@@ -84,7 +84,7 @@ class GuiTests(unittest.TestCase):
         „Beim Ziehen automatisch abspielen“ – Hinweis statt stummer Ziehung.
         """
         for mode in ("pausiert", "ignoriert", "start", "test", "pause", "haengt", "spaet", "testabbruch",
-                     "pause_kontrolle", "wiederholt", "ohne_testsong", "ohne_haken"):
+                     "pause_kontrolle", "wiederholt", "ohne_testsong", "ohne_haken", "vordergrund"):
             with self.subTest(mode=mode):
                 self.scenario("spotify_abspielen.py", mode)
 
