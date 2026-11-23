@@ -568,10 +568,61 @@ def scenario_without_autoplay(w):
     check("ohne Song-Timer kein Hinweis", w.warning_kind == "" and not w.warning_revealer.get_reveal_child())
 
 
+def scenario_in_front(w):
+    """Spotify springt bei jedem Titel nach vorn – die Steuerung holt sich danach zurück.
+
+    Regression aus dem Test am Laptop 11/2026: Die Linux-App von Spotify drängt sich bei jedem neuen Titel in den
+    Vordergrund und verdeckt die Steuerung; die Spielleitung musste jedes Mal zurückklicken.
+    """
+    start_fake("spotify-pausiert")
+    setup_round(w)
+    w.auto_play_check.set_active(True)
+    w._select_page("game")
+    spotify_window = Gtk.Window(title="Spotify (simuliert)")
+    spotify_window.set_default_size(400, 300)
+    spotify_window.show_all()
+
+    def steal_focus() -> None:
+        spotify_window.present_with_time(w._server_time())
+
+    w.present_with_time(w._server_time())
+    check("Ausgangslage: Steuerung hat den Fokus", wait(w.is_active, 3))
+    for number in (1, 2):
+        w._draw_next()
+        song = w.service.game.caller.current
+        check(f"Song {number}: Spotify startet den Titel", wait(lambda: calls("OpenUri", uri_of(song)) == 1, 4))
+        steal_focus()  # wie die echte Spotify-App: Fenster springt nach vorn
+        check(f"Song {number}: Spotify hat sich nach vorn gedrängt", wait(spotify_window.is_active, 2))
+        check(f"Song {number}: Steuerung ist danach wieder vorn", wait(w.is_active, 4))
+
+    # Gegenprobe: Wer bewusst in ein anderes Fenster gewechselt ist, wird nicht zurückgeholt.
+    # (In den ersten 2,5 s nach einem Songstart holt sich die Steuerung absichtlich noch zurück –
+    # so lange kann Spotify brauchen, bis es nach vorn springt.)
+    pump(3.0)
+    steal_focus()
+    check("Gegenprobe: anderes Fenster bewusst gewählt", wait(spotify_window.is_active, 2))
+    w._draw_next()
+    pump(3.0)
+    check("Gegenprobe: Steuerung holt sich nicht ungefragt nach vorn", spotify_window.is_active() and not w.is_active())
+
+    # Ein offener Dialog der App wird nicht vom Hauptfenster verdeckt
+    w.present_with_time(w._server_time())
+    wait(w.is_active, 3)
+    dialog = Gtk.Dialog(title="Bingo prüfen (simuliert)", transient_for=w, modal=True)
+    dialog.show_all()
+    dialog.present_with_time(w._server_time())
+    check("Dialog hat den Fokus", wait(dialog.is_active, 3))
+    w._keep_in_front()
+    pump(3.0)
+    check("Dialog bleibt vorn, Hauptfenster drängt sich nicht davor", dialog.is_active())
+    dialog.destroy()
+    spotify_window.destroy()
+
+
 SCENARIOS = {"ohne_testsong": scenario_no_test_song, "wiederholt": scenario_retry, "pausiert": scenario_paused, "ignoriert": scenario_ignored, "start": scenario_start,
              "test": scenario_test, "pause": scenario_pause, "haengt": scenario_hung, "spaet": scenario_late,
              "testabbruch": scenario_test_cancelled, "pause_kontrolle": scenario_pause_control,
-             "ohne_haken": scenario_without_autoplay}
+             "ohne_haken": scenario_without_autoplay, "vordergrund": scenario_in_front}
 
 forbid_network()
 patch_dialogs()

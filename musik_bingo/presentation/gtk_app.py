@@ -3,6 +3,7 @@ from __future__ import annotations
 import math
 import os
 import sys
+import time
 from pathlib import Path
 
 import gi
@@ -54,6 +55,10 @@ from musik_bingo.paths import CATALOG_DIR, DEFAULT_SONGS as DEFAULT_SONGS_PATH, 
 DEFAULT_SONGS = DEFAULT_SONGS_PATH.read_text(encoding="utf-8")
 PAGES = ("songs", "cards", "game")
 TARGET_LABELS = {"lokal": "Lokale Dateien", "spotify": "Spotify", "youtube": "YouTube"}
+# Die Spotify-App für Linux holt sich bei jedem neuen Titel selbst nach vorn und verdeckt die Steuerung.
+# Danach holt sich die Steuerung zurück – mehrmals, weil Spotify je nach Ladezeit später nach vorn springt.
+REFOCUS_DELAYS_MS = (400, 1200, 2500)
+REFOCUS_AUTOSTART_S = 20.0  # Spotify-Autostart: Das Spotify-Fenster erscheint erst nach Sekunden
 EXTERNAL_TARGETS = ("spotify", "youtube")
 NAVIGATION_KEYS = (Gdk.KEY_Tab, Gdk.KEY_ISO_Left_Tab, Gdk.KEY_Up, Gdk.KEY_Down, Gdk.KEY_Left, Gdk.KEY_Right)
 
@@ -146,6 +151,8 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.reader: mpris.PlaylistReader | None = None
         # Spotify zuverlässig abspielen: Kontrolle nach OpenUri, Autostart, Selbsttest
         self.playback_check: spotify.PlaybackCheck | None = None
+        self.refocus_generation = 0
+        self.refocus_until = 0.0  # bis dahin gilt der Wunsch „Steuerung vorn behalten“ auch ohne Fokus
         self.play_generation = 0  # steigt bei jedem neuen Song: alte Rückmeldungen verfallen
         self.spotify_waiter: spotify.NameWaiter | None = None
         self.spotify_waiter_callbacks: list = []
@@ -2051,6 +2058,8 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             self._update_audio_controls(f"Wiedergabe: {Path(path_text).name}")
             return
         self._cancel_playback_check()
+        if target == "spotify":
+            self._keep_in_front()
         if target == "spotify" and self.player is None:
             self._connect_player(quiet=True)
         spotify_mpris = bool(self.player and self.player.info.is_spotify)
@@ -2058,6 +2067,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             # Spotify läuft nicht: Desktop-App starten und auf sie warten, statt nur den Link abzugeben.
             generation = self.play_generation
             if self._ensure_spotify(lambda found: self._spotify_ready_for(found, song, generation)):
+                self._keep_in_front(grace=REFOCUS_AUTOSTART_S)
                 text = f"Spotify wird gestartet … ({song.display_name})"
                 self._set_status(text)
                 self._update_audio_controls(text)
@@ -2126,6 +2136,45 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.playback_check = spotify.PlaybackCheck(self.player, uri, done, timeout_ms=self.playback_check_ms,
                                                     song=song)
         self.playback_check.start()
+
+    # ---------------------------------------------------------------- Steuerung vorn behalten
+
+    def _own_window_active(self) -> bool:
+        """Hat ein Fenster der App den Fokus (Hauptfenster, Dialog, Beamer)?"""
+        return any(window.is_active() for window in Gtk.Window.list_toplevels()
+                   if window is self or window is self.beamer or window.get_transient_for() is self)
+
+    def _keep_in_front(self, grace: float = 0.0) -> None:
+        """Nach dem Start eines Titels in Spotify die Steuerung zurück nach vorn holen.
+
+        Nur wenn die Spielleitung gerade in der App arbeitet (sie hat den Fokus, oder ein Spotify-Autostart
+        läuft noch) – wer bewusst in ein anderes Fenster gewechselt ist, wird nicht gestört.
+        """
+        now = time.monotonic()
+        if not self.get_visible() or not (self._own_window_active() or now < self.refocus_until):
+            return
+        self.refocus_until = max(self.refocus_until, now + grace)
+        self.refocus_generation += 1
+        generation = self.refocus_generation
+        for delay in REFOCUS_DELAYS_MS:
+            GLib.timeout_add(delay, self._refocus, generation)
+
+    def _refocus(self, generation: int) -> bool:
+        if generation == self.refocus_generation and self.get_visible() and not self._own_window_active():
+            self.present_with_time(self._server_time())
+        return False
+
+    def _server_time(self) -> int:
+        """Aktuelle X-Serverzeit: Damit akzeptiert der Fenstermanager das Nach-vorn-Holen als neueste Aktion."""
+        try:
+            gi.require_version("GdkX11", "3.0")
+            from gi.repository import GdkX11
+            window = self.get_window()
+            if isinstance(window, GdkX11.X11Window):
+                return GdkX11.x11_get_server_time(window)
+        except (ImportError, ValueError, AttributeError):
+            pass
+        return Gtk.get_current_event_time()
 
     def _cancel_playback_check(self) -> None:
         if self.playback_check is not None:
