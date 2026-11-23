@@ -12,7 +12,7 @@ Musik-Bingo für private Feiern als native Desktop-App (Python + GTK 3).
 ## Funktionen
 
 - **Karten:** 3×3, 4×4 oder 5×5, Freifeld, Diagonalen, bis 500 verschiedene Karten, Druck/PDF
-- **Songlisten:** Playlist-Import (Spotify-CSV, M3U, YouTube-Titel), Zufallsmix aus Charts & Weihnachtsliedern (offline, Stand KW 47/2026)
+- **Songlisten:** Playlist-Import (Spotify-CSV, M3U, YouTube-Titel), Zufallsmix aus Charts & Weihnachtsliedern (offline): deutsche Jahrescharts 1990–2024 (Top 10 je Jahr, nach Jahrzehnten wählbar) und aktuelle Charts (Stand KW 47/2026)
 - **Bingo = Playlist:** Export als Playlist, Abgleich Karten ↔ Playlist
 - **Wiedergabe:** lokale Dateien, Spotify (Desktop-App, Titel startet automatisch) oder YouTube im Browser. Bei Spotify prüft die App, ob der Titel wirklich läuft, startet die Spotify-App bei Bedarf selbst und bietet *Spotify testen* (Prüfliste vor dem Abend)
 - **Player folgen:** Playlist läuft in Spotify oder YouTube, die App zieht den laufenden Song automatisch und warnt bei fremden Titeln

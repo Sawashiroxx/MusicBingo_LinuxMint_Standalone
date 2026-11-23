@@ -2,6 +2,13 @@
 
 ## Unveröffentlicht
 
+- Zufallsmix: Neue Listen mit deutschen Hits 1990 bis 2024, aus den offiziellen Single-Jahrescharts, jeweils Platz 1–10 je Jahr:
+  - 1990er-Hits (97 Songs)
+  - 2000er-Hits (99 Songs)
+  - 2010er-Hits (98 Songs)
+  - 2020er-Hits 2020–2024 (46 Songs)
+
+  Jede Liste ist einzeln wählbar, die aktuellen Listen 2025/2026 bleiben erhalten. Bei gleichem Titel verschiedener Interpreten ist nur die bekanntere Fassung enthalten, etwa „It's My Life“ von Bon Jovi.
 - Tests: Neues GUI-Szenario „wie am Abend“ auf einem 1366×768-Bildschirm. Es nutzt echte Dialoge statt automatischer Bestätigung, gehaltene Tasten, echte Mausklicks und Doppelklicks, Tippfehler bei der Kartennummer, lange Spotify-Titel, den Beamer mit langem Gewinnernamen und einen Speicherfehler. Gegen den Stand vor 2.5.1 schlagen 19 von 21 Prüfungen an.
 - CI: Fehlt ein GUI-Werkzeug, schlägt der Test fehl, statt still übersprungen zu werden.
 
