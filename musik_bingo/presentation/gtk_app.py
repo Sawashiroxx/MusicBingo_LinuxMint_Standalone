@@ -732,6 +732,19 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         history.pack_start(self.history, False, False, 0)
         left.pack_start(history_frame, False, False, 0)
 
+        control_frame, control_box = self._panel(
+            "Gewinnkontrolle", "Nur hier sichtbar, nicht auf dem Beamer. Die App prüft nach jedem Song alle Karten "
+            "gegen das aktuelle Gewinnziel.")
+        self.target_status_label = label("", "small", wrap=True)
+        control_box.pack_start(self.target_status_label, False, False, 0)
+        self.target_cards = Gtk.FlowBox()
+        self.target_cards.set_selection_mode(Gtk.SelectionMode.NONE)
+        self.target_cards.set_max_children_per_line(4)
+        self.target_cards.set_column_spacing(8)
+        self.target_cards.set_row_spacing(8)
+        control_box.pack_start(self.target_cards, False, False, 0)
+        left.pack_start(control_frame, False, False, 0)
+
         winners_frame, winners_box = self._panel("Gewinnerliste",
                                                  "Wird über „Bingo prüfen“ gefüllt. Dieselbe Karte kann nicht doppelt gewinnen.")
         self.winners_list = Gtk.ListBox()
@@ -1401,6 +1414,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
                 self.artist_label.set_text("Leertaste oder „Nächsten Song ziehen“ drücken.")
         self._update_source_chip()
         self._update_link_overview()
+        self._render_target_status()
         self.progress_label.set_text(f"{count}/{total}")
         self.progress.set_fraction(count / total if total else 0)
         if self.service.game.cards:
@@ -1648,6 +1662,11 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             number = dialogs.find_card_dialog(self, game.songs, {song.key for song in game.caller.drawn}, find)
             if number is None:
                 return
+        self._show_card_result(number, name)
+
+    def _show_card_result(self, number: int, name: str = "") -> None:
+        """Karte mit gezogenen Feldern zeigen; bei erreichtem Ziel als Gewinner eintragbar."""
+        game = self.service.game
         try:
             reached, wins, full = self.service.check_win(number)
         except ValueError as error:
@@ -1879,6 +1898,52 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             self.winners_list.add(row)
         self.winners_list.show_all()
 
+    def _render_target_status(self) -> None:
+        """Gewinnkontrolle: Karten mit erreichtem Ziel als Knöpfe, die direkt die Bingo-Prüfung öffnen."""
+        if not hasattr(self, "target_cards"):
+            return
+        for child in self.target_cards.get_children():
+            self.target_cards.remove(child)
+        game = self.service.game
+        target = WIN_TARGET_LABELS[self.service.win_target]
+        if not game.cards or not game.caller.drawn:
+            self.target_status_label.set_text(f"Ziel: {target} · Noch kein Song gezogen.")
+            self.target_cards.show_all()
+            return
+        status = self.service.target_status()
+        parts = [f"Ziel: {target}"]
+        if status.reached:
+            count = len(status.reached)
+            parts.append(f"{count} Karte hat das Ziel erreicht" if count == 1
+                         else f"{count} Karten haben das Ziel erreicht – Gleichstand")
+        else:
+            parts.append("noch keine Karte am Ziel")
+        if status.entered:
+            parts.append("eingetragen: " + ", ".join(f"#{number}" for number in status.entered))
+        if status.one_missing:
+            parts.append(f"{status.one_missing} Karte{'' if status.one_missing == 1 else 'n'} "
+                         "fehlt nur noch ein Song")
+        self.target_status_label.set_text(" · ".join(parts))
+        for number in status.reached[:40]:
+            button = self._button(f"Karte #{number} prüfen", self._check_reached_card, "primary",
+                                  tooltip="Öffnet die Bingo-Prüfung für diese Karte")
+            button.card_number = number
+            self.target_cards.add(button)
+        if len(status.reached) > 40:
+            self.target_cards.add(label(f"… und {len(status.reached) - 40} weitere", "muted", "small"))
+        self._no_focus_on_click(self.target_cards)
+        self.target_cards.show_all()
+
+    def _check_reached_card(self, button: Gtk.Button) -> None:
+        was_paused = self.timer.paused
+        self.timer.pause()  # während der Prüfung zählt der Timer nicht weiter
+        try:
+            self._show_card_result(button.card_number)
+        finally:
+            if not was_paused and not self.timer_hold:
+                self.timer.resume()
+            self._update_beamer()
+
     def _remove_winner(self, _button, index: int) -> None:
         if not 0 <= index < len(self.service.winners):
             return
@@ -1888,6 +1953,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             self.service.remove_winner(index)
             self._save()
             self._render_winners()
+            self._render_target_status()
 
     def _export_winners(self, _button) -> None:
         if not self.service.winners:

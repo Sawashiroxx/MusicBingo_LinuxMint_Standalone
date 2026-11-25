@@ -18,6 +18,7 @@ Musik-Bingo für private Feiern als native Desktop-App (Python + GTK 3).
 - **Player folgen:** Playlist läuft in Spotify oder YouTube, die App zieht den laufenden Song automatisch und warnt bei fremden Titeln
 - **Gewinnziel pro Runde:** 1 Reihe, 2 Reihen oder volle Karte – mit Spielprognose und Gewinngarantie
 - **Bingo prüfen:** zeigt die Karte mit gezogenen Feldern und Gewinnlinie, trägt Gewinner ein – auch *ohne Kartennummer*: Songs der Gewinnreihe anhaken, die App findet die Karte
+- **Gewinnkontrolle:** Die App prüft nach jedem Song alle Karten gegen das aktuelle Gewinnziel und zeigt der Spielleitung, welche Karten es erreicht haben (Knopf öffnet direkt *Bingo prüfen*), dazu Gleichstand und wie vielen Karten nur noch ein Song fehlt – nur im Hauptfenster, nicht auf dem Beamer
 - **Beamer-Ansicht:** zweites Fenster für die Gäste, Titel erst nach Aufdecken (T), Countdown, BINGO-Banner
 - **Song-Timer:** nach X Sekunden auflösen und automatisch weiter (P = Pause); *Nach Ablauf pausieren* hält die Musik zur Auflösung an
 - **Gewinnerliste & Runden:** 1 Reihe → 2 Reihen → Volle Karte → neue Runde; keine Karte gewinnt doppelt. Wer vor dem ersten Song z. B. *Volle Karte* wählt, spielt alle Runden nur damit

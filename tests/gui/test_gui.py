@@ -53,6 +53,10 @@ class GuiTests(unittest.TestCase):
     def test_bingo_check_without_card_number(self):
         self.scenario("ohne_nummer.py")
 
+    def test_win_control_shows_reached_cards(self):
+        """Gewinnkontrolle: volle Karten erscheinen nach jedem Song als Prüfknopf – nur für die Spielleitung."""
+        self.scenario("gewinnkontrolle.py")
+
     def test_shortcuts_with_real_keystrokes(self):
         """Regression: Leertaste/T wirkten mit echten Tastendrücken nicht (nur im Direktaufruf)."""
         require(self, "xdotool")

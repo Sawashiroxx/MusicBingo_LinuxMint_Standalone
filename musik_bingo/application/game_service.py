@@ -5,7 +5,9 @@ from musik_bingo.application.song_timer import SongTimer
 from musik_bingo.domain.caller import Caller
 from musik_bingo.domain.card_generator import generate_cards, required_songs, winning_lines
 from musik_bingo.domain.models import BingoCard, Song
-from musik_bingo.domain.forecast import WIN_TARGETS, Forecast, Guarantee, card_status, forecast, guarantee, target_reached
+from musik_bingo.domain.forecast import (
+    WIN_TARGETS, Forecast, Guarantee, card_status, forecast, guarantee, missing_to_target, target_reached,
+)
 from musik_bingo.domain.evening import (
     DEFAULT_TITLE, MAX_NAME_LENGTH, MAX_WINNERS, Winner, check_new_winner, clean_event_title, clean_text, next_stage,
 )
@@ -18,6 +20,14 @@ MAX_GAME_SONGS = 2000
 PLAYBACK_TARGETS = ("lokal", "spotify", "youtube")
 # Spielstände aus 2.4.x: YouTube Music gibt es nicht mehr → normales YouTube
 LEGACY_TARGETS = {"ytmusic": "youtube"}
+
+
+@dataclass(frozen=True)
+class TargetStatus:
+    """Gewinnkontrolle für die Spielleitung: Welche Karten haben das aktuelle Ziel erreicht?"""
+    reached: tuple[int, ...]   # Kartennummern mit erreichtem Ziel, noch nicht eingetragen
+    entered: tuple[int, ...]   # in dieser Runde und Stufe schon als Gewinner eingetragen
+    one_missing: int           # Karten, denen genau noch ein Song fehlt
 
 
 @dataclass
@@ -130,6 +140,23 @@ class GameService:
         complete, full = card_status(game.cards[card_number - 1], game.size, game.free_space,
                                      game.caller.drawn, game.diagonal_wins)
         return target_reached(self.win_target, complete, full), lines, full
+
+    def target_status(self) -> TargetStatus:
+        """Prüft alle Karten gegen das aktuelle Gewinnziel – nur für die Spielleitung, nicht für den Beamer."""
+        game = self.game
+        entered = {winner.card for winner in self.winners
+                   if winner.round == self.round_number and winner.target == self.win_target}
+        reached: list[int] = []
+        one_missing = 0
+        if game.caller.drawn:
+            for number, card in enumerate(game.cards, start=1):
+                missing = missing_to_target(card, game.size, game.free_space, game.caller.drawn,
+                                            self.win_target, game.diagonal_wins)
+                if missing == 0 and number not in entered:
+                    reached.append(number)
+                elif missing == 1:
+                    one_missing += 1
+        return TargetStatus(tuple(reached), tuple(sorted(entered)), one_missing)
 
     def forecast(self, runs: int = 300) -> Forecast:
         game = self.game
