@@ -238,11 +238,15 @@ class PersistenceTests(unittest.TestCase):
         self.assertEqual((restored.event_title, restored.round_number, restored.win_target), ("Weihnachtsfeier 2026", 1, "zwei_reihen"))
         self.assertEqual((restored.timer_seconds, restored.reveal_seconds), (45, 5))
         self.assertEqual(restored.winners, svc.winners)
-        for key in ("event_title", "round_number", "timer_seconds", "reveal_seconds"):
+        svc.beamer_reveal = False
+        self.assertFalse(GameService.from_dict(svc.to_dict()).beamer_reveal)
+        data = svc.to_dict()
+        for key in ("event_title", "round_number", "timer_seconds", "reveal_seconds", "beamer_reveal"):
             del data["settings"][key]
         del data["winners"]
         old = GameService.from_dict(data)
         self.assertEqual((old.event_title, old.round_number, old.timer_seconds, old.winners), ("Musik Bingo", 1, 0, []))
+        self.assertTrue(old.beamer_reveal)  # alte Spielstände: Aufdecken wie bisher an
 
     def test_duplicate_winners_in_file_are_rejected(self):
         svc = service()
@@ -258,6 +262,7 @@ class PersistenceTests(unittest.TestCase):
         bad = [
             ("settings", "round_number", 0), ("settings", "round_number", True), ("settings", "timer_seconds", 9999),
             ("settings", "reveal_seconds", -1), ("settings", "event_title", 5),
+            ("settings", "beamer_reveal", "nein"), ("settings", "beamer_reveal", 0),
             ("winners", None, [{"round": 1, "target": "reihe", "card": 99, "name": "", "song_count": 1}]),
             ("winners", None, [{"round": 1, "target": "jackpot", "card": 1, "name": "", "song_count": 1}]),
             ("winners", None, [{"round": "1", "target": "reihe", "card": 1, "name": "", "song_count": 1}]),
@@ -323,6 +328,19 @@ class BeamerStateTests(unittest.TestCase):
         self.assertEqual((shown.title, shown.recent, shown.banner), (second.title, (first.display_name,), "BINGO!"))
         self.assertEqual(shown.round_line, "Runde 1 · Ziel: 1 Reihe")
         self.assertEqual(shown.event_title, "Weihnachtsfeier 2026")
+
+    def test_reveal_can_be_switched_off(self):
+        """„Titel auf dem Beamer aufdecken“ aus: kein Titel – weder aufgedeckt noch unter „Zuletzt“."""
+        svc = service()
+        svc.beamer_reveal = False
+        first = svc.game.caller.draw_next()
+        svc.game.caller.draw_next()
+        state = build_beamer_state(svc, revealed=True, timer_text="Auflösung", banner="BINGO!")
+        self.assertEqual((state.title, state.artist, state.revealed, state.recent), (HIDDEN, "", False, ()))
+        self.assertEqual((state.song_line, state.timer, state.banner), ("Song 2", "Auflösung", "BINGO!"))
+        self.assertNotIn(first.display_name, repr(state))
+        svc.beamer_reveal = True
+        self.assertEqual(build_beamer_state(svc, revealed=True).recent, (first.display_name,))
 
     def test_recent_list_is_limited(self):
         svc = service()

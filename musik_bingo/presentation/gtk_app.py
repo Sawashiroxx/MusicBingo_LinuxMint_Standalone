@@ -661,7 +661,8 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
 
         show_frame, show = self._panel("Beamer & Timer",
                                        "Beamer: zweites Fenster für die Gäste (Doppelklick/F11 = Vollbild). "
-                                       "Der Songtitel bleibt verborgen, bis du ihn aufdeckst (Taste T).")
+                                       "Der Songtitel bleibt verborgen, bis du ihn aufdeckst (Taste T) – "
+                                       "oder ganz, wenn „Titel auf dem Beamer aufdecken“ aus ist.")
         show_row = Gtk.Box(spacing=8)
         self.beamer_button = Gtk.ToggleButton(label="Beamer öffnen")
         self.beamer_button.set_image(Gtk.Image.new_from_icon_name("video-display-symbolic", Gtk.IconSize.BUTTON))
@@ -671,6 +672,13 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.reveal_button.connect("toggled", self._reveal_toggled)
         show_row.pack_start(self.beamer_button, False, False, 0)
         show_row.pack_start(self.reveal_button, False, False, 0)
+        self.beamer_reveal_check = Gtk.CheckButton(label="Titel auf dem Beamer aufdecken")
+        self.beamer_reveal_check.set_active(True)
+        self.beamer_reveal_check.set_tooltip_text(
+            "Aus: Die Gäste sehen auf dem Beamer nie einen Songtitel – weder beim Aufdecken (T) noch in der "
+            "Auflösung des Timers oder unter „Zuletzt“. Du siehst ihn weiter hier im Hauptfenster.")
+        self.beamer_reveal_check.connect("toggled", self._beamer_reveal_changed)
+        show_row.pack_start(self.beamer_reveal_check, False, False, 0)
         show.pack_start(show_row, False, False, 0)
         timer_row = Gtk.Box(spacing=10)
         self.timer_spin = Gtk.SpinButton.new_with_range(0, 600, 5)
@@ -800,6 +808,8 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             self.page_combo.set_active(1 if service.per_page == 1 else 0)
             self.auto_play_check.set_active(service.auto_play)
             self.pause_after_check.set_active(service.pause_after_timer)
+            self.beamer_reveal_check.set_active(service.beamer_reveal)
+            self._sync_reveal_button()
             self.target_buttons[service.playback_target].set_active(True)
             self.win_buttons[service.win_target].set_active(True)
             self.title_entry.set_text(service.event_title)
@@ -1754,6 +1764,23 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             self.reveal_button.set_active(self.revealed)
             self.reveal_button.handler_unblock_by_func(self._reveal_toggled)
         self._update_beamer()
+
+    def _beamer_reveal_changed(self, _button) -> None:
+        if self._loading_state:
+            return
+        self.service.beamer_reveal = self.beamer_reveal_check.get_active()
+        self._sync_reveal_button()
+        self._save()
+        self._update_beamer()
+        self._set_status("Titel werden auf dem Beamer aufgedeckt" if self.service.beamer_reveal
+                         else "Titel bleiben auf dem Beamer verborgen")
+
+    def _sync_reveal_button(self) -> None:
+        """„Titel aufdecken (T)“ ist nur bedienbar, wenn der Beamer Titel überhaupt zeigen darf."""
+        allowed = self.beamer_reveal_check.get_active()
+        self.reveal_button.set_sensitive(allowed)
+        self.reveal_button.set_tooltip_text(
+            "" if allowed else "Aufdecken ist aus („Titel auf dem Beamer aufdecken“).")
 
     def _reveal_toggled(self, button: Gtk.ToggleButton) -> None:
         self.revealed = button.get_active()
@@ -2735,6 +2762,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.service.diagonal_wins = self.diagonal_check.get_active()
         self.service.auto_play = self.auto_play_check.get_active()
         self.service.pause_after_timer = self.pause_after_check.get_active()
+        self.service.beamer_reveal = self.beamer_reveal_check.get_active()
         if hasattr(self, "title_entry"):
             self.service.set_event_title(self.title_entry.get_text())
         self._save()
@@ -2975,7 +3003,8 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         elif isinstance(focus, (Gtk.TextView, Gtk.Entry)):
             return False  # Texteingaben (Suche, Titel) bekommen jede Taste
         # Buchstaben-Kürzel gelten immer – kein Bedienelement nutzt T oder P selbst.
-        if event.keyval in (Gdk.KEY_t, Gdk.KEY_T) and self.service.game.caller.current is not None:
+        if (event.keyval in (Gdk.KEY_t, Gdk.KEY_T) and self.service.game.caller.current is not None
+                and self.reveal_button.get_sensitive()):
             self.reveal_button.set_active(not self.reveal_button.get_active())
             return True
         if event.keyval in (Gdk.KEY_p, Gdk.KEY_P) and self.timer.phase != "aus":

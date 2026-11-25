@@ -2,6 +2,7 @@
 
 ## Unveröffentlicht
 
+- Neu: Schalter **„Titel auf dem Beamer aufdecken“** unter „Beamer & Timer“. Ist er aus, sehen die Gäste auf dem Beamer nie einen Songtitel: nicht per Taste T (der Knopf ist dann gesperrt), nicht in der Auflösung des Song-Timers und nicht unter „Zuletzt“. Die Spielleitung sieht den Titel weiter im Hauptfenster. Die Einstellung wird gespeichert, alte Spielstände decken wie bisher auf.
 - Neu: **Gewinnkontrolle** im Spielleitungs-Tab. Nach jedem Song prüft die App alle Karten gegen das aktuelle Gewinnziel und zeigt, welche Karten es erreicht haben. Ein Knopf je Karte öffnet direkt „Bingo prüfen“. Angezeigt werden auch ein Gleichstand, schon eingetragene Karten und wie vielen Karten nur noch ein Song fehlt. So fällt auch ein Gewinner auf, der ein Feld übersehen hat. Der Beamer zeigt davon nichts.
 - Spotify verdeckt die Steuerung nicht mehr: Die Spotify-App für Linux springt bei jedem neuen Titel selbst in den Vordergrund. Die Steuerung holt sich danach automatisch zurück. Das passiert nur, wenn sie vorher vorn war, nie über einen offenen Dialog der App hinweg und nicht bei YouTube.
 - Zufallsmix: Neue Listen mit deutschen Hits 1990 bis 2024, aus den offiziellen Single-Jahrescharts, jeweils Platz 1–10 je Jahr:

@@ -74,6 +74,9 @@ class GameService:
         self.reveal_seconds = 5
         # Läuft die Spielzeit des Song-Timers ab, wird die Wiedergabe pausiert (Spotify/lokal)
         self.pause_after_timer = True
+        # Titel auf dem Beamer aufdecken (Taste T / Auflösung des Timers). Aus: Die Gäste sehen nie einen
+        # Songtitel – auch nicht in „Zuletzt“. Die Spielleitung sieht ihn weiter im Hauptfenster.
+        self.beamer_reveal = True
 
     def set_song_text(self, text: str) -> list[Song]:
         self.song_text = text
@@ -320,6 +323,7 @@ class GameService:
                 "timer_seconds": self.timer_seconds,
                 "reveal_seconds": self.reveal_seconds,
                 "pause_after_timer": self.pause_after_timer,
+                "beamer_reveal": self.beamer_reveal,
             },
             "winners": [winner.to_dict() for winner in self.winners],
             "songs": [song.to_dict() for song in self.game.songs],
@@ -509,6 +513,10 @@ class GameService:
         if not isinstance(pause_after_timer, bool):
             raise ValueError("Ungültige Einstellung „Nach Ablauf pausieren“ im Spielstand.")
         service.pause_after_timer = pause_after_timer
+        beamer_reveal = settings.get("beamer_reveal", True)
+        if not isinstance(beamer_reveal, bool):
+            raise ValueError("Ungültige Einstellung „Titel auf dem Beamer aufdecken“ im Spielstand.")
+        service.beamer_reveal = beamer_reveal
         raw_winners = data.get("winners", [])
         if not isinstance(raw_winners, list) or len(raw_winners) > MAX_WINNERS:
             raise ValueError("Ungültige Gewinnerliste im Spielstand.")
