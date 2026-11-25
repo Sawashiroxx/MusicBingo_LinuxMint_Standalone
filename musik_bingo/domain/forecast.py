@@ -135,6 +135,26 @@ def card_status(card: BingoCard, size: int, free_space: bool, drawn: list[Song],
     return complete, all(marked)
 
 
+def missing_to_target(card: BingoCard, size: int, free_space: bool, drawn: list[Song], target: str,
+                      diagonals: bool = False) -> int:
+    """Wie viele Songs dieser Karte fehlen mindestens noch bis zum Gewinnziel? 0 = erreicht.
+
+    „1 Reihe“: die Linie mit den wenigsten offenen Feldern. „2 Reihen“: das Linienpaar mit den wenigsten
+    offenen Feldern zusammen (Kreuzungsfelder zählen einmal). „Volle Karte“: alle offenen Felder.
+    """
+    if target not in WIN_TARGETS:
+        raise ValueError("Unbekanntes Gewinnziel.")
+    drawn_keys = {song.key for song in drawn}
+    open_cells = {index for index, key in enumerate(_cell_keys(card, size, free_space))
+                  if key is not None and key not in drawn_keys}
+    if target == "volle_karte":
+        return len(open_cells)
+    open_lines = [open_cells.intersection(line) for line in _lines(size, diagonals)]
+    if target == "reihe":
+        return min(len(cells) for cells in open_lines)
+    return min(len(first | second) for index, first in enumerate(open_lines) for second in open_lines[index + 1:])
+
+
 def target_reached(target: str, complete_lines: int, full: bool) -> bool:
     if target not in WIN_TARGETS:
         raise ValueError("Unbekanntes Gewinnziel.")
