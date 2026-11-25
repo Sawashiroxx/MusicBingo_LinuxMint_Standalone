@@ -2,8 +2,13 @@
 
 ## Unveröffentlicht
 
-- Neu: Schalter **„Titel auf dem Beamer aufdecken“** unter „Beamer & Timer“. Ist er aus, sehen die Gäste auf dem Beamer nie einen Songtitel: nicht per Taste T (der Knopf ist dann gesperrt), nicht in der Auflösung des Song-Timers und nicht unter „Zuletzt“. Die Spielleitung sieht den Titel weiter im Hauptfenster. Die Einstellung wird gespeichert, alte Spielstände decken wie bisher auf.
+- Neu: Schalter **„Titel auf dem Beamer aufdecken“** unter „Beamer & Timer“. Ist er aus, sehen die Gäste auf dem Beamer nie einen Songtitel: nicht per Taste T (der Knopf ist dann gesperrt), nicht in der Auflösung des Song-Timers und nicht unter „Zuletzt“. Die Spielleitung sieht den Titel weiter im Hauptfenster. Die Einstellung wird gespeichert, alte Spielstände decken wie bisher auf. Beim Umschalten wird nichts automatisch aufgedeckt. Ist der Schalter aus, zeigt der Beamer während der Timer-Auflösung „Nächster Song in … s“ statt „Auflösung“.
 - Neu: **Gewinnkontrolle** im Spielleitungs-Tab. Nach jedem Song prüft die App alle Karten gegen das aktuelle Gewinnziel und zeigt, welche Karten es erreicht haben. Ein Knopf je Karte öffnet direkt „Bingo prüfen“. Angezeigt werden auch ein Gleichstand, schon eingetragene Karten und wie vielen Karten nur noch ein Song fehlt. So fällt auch ein Gewinner auf, der ein Feld übersehen hat. Der Beamer zeigt davon nichts.
+- Gewinnkontrolle nach der Prüfung (Claude Fable 5.2) verbessert:
+  - **Sichtbar ohne Scrollen:** Eine Hinweiszeile direkt unter den Knöpfen nennt die früheste Karte am Ziel, mit Prüfknopf. Vorher lag das Panel auf 1366×768 rund 600 Pixel unter dem sichtbaren Bereich.
+  - **Gleichstand stimmt:** Je Karte steht, seit welchem Song sie das Ziel hat, die früheste steht vorn. „Gleichstand“ erscheint nur noch, wenn mehrere Karten beim selben Song ans Ziel kamen. Vorher galt jede zweite volle Karte als Gleichstand, auch wenn die erste drei Songs früher fertig war.
+  - **Mit Namen eintragen:** Der Prüfknopf öffnet „Bingo prüfen“ mit vorbelegter Kartennummer, der Name kann dazu. Vorher wurden Gewinner immer ohne Namen eingetragen.
+  - Nach „Zurück“ ist eine eingetragene Karte als „nicht mehr am Ziel“ markiert und zählt nicht mehr bei „fehlt nur noch ein Song“. Karten mit früherem Gewinn tragen „(hat schon gewonnen)“. Es gibt höchstens 12 Knöpfe, der Rest steht als Text.
 - Spotify verdeckt die Steuerung nicht mehr: Die Spotify-App für Linux springt bei jedem neuen Titel selbst in den Vordergrund. Die Steuerung holt sich danach automatisch zurück. Das passiert nur, wenn sie vorher vorn war, nie über einen offenen Dialog der App hinweg und nicht bei YouTube.
 - Zufallsmix: Neue Listen mit deutschen Hits 1990 bis 2024, aus den offiziellen Single-Jahrescharts, jeweils Platz 1–10 je Jahr:
   - 1990er-Hits (97 Songs)

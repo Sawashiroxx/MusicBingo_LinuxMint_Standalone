@@ -34,32 +34,49 @@ def scenario(w):
 
     w.beamer_reveal_check.set_active(False)
     current = w.service.game.caller.current
-    check("Aus: Aufdecken-Knopf gesperrt", not w.reveal_button.get_sensitive())
-    w._set_revealed(True)  # so löst der Song-Timer auf
-    pump(0.1)
-    check("Aus: Beamer zeigt keinen Titel, auch nicht in der Auflösung",
-          w.beamer.title_label.get_text() == HIDDEN and not w.beamer.artist_label.get_visible())
+    check("Aus: Aufdecken-Knopf gesperrt, nichts bleibt aufgedeckt",
+          not w.reveal_button.get_sensitive() and not w.revealed and not w.reveal_button.get_active())
+    check("Aus: Beamer zeigt keinen Titel", w.beamer.title_label.get_text() == HIDDEN
+          and not w.beamer.artist_label.get_visible())
     check("Aus: „Zuletzt“ ist leer", w.beamer.recent_label.get_text() == "")
     check("Aus: Spielleitung sieht den Titel weiter", w.song_label.get_text() == current.title)
-    w.reveal_button.set_active(False)
     w._on_key(w, _key("t"))
-    check("Aus: Taste T deckt nichts auf", not w.reveal_button.get_active()
-          and w.beamer.title_label.get_text() == HIDDEN)
+    check("Aus: Taste T deckt nichts auf", not w.revealed and w.beamer.title_label.get_text() == HIDDEN)
 
+    # Song-Timer löst auf: Beamer bleibt verborgen, kein „Auflösung“-Text, nichts bleibt aufgedeckt
+    w.timer_spin.set_value(5)
+    w.reveal_spin.set_value(3)
+    w._timer_settings_changed()
+    w.timer.start()
+    w.timer.remaining = 1
+    w._timer_step()
+    pump(0.1)
+    check("Aus: Timer-Auflösung zeigt keinen Titel und kein „Auflösung“",
+          w.timer.phase == "auflösung" and w.beamer.title_label.get_text() == HIDDEN
+          and "Auflösung" not in w.beamer.timer_label.get_text()
+          and w.beamer.timer_label.get_text().startswith("Nächster Song in") and not w.revealed)
+    w.beamer_reveal_check.set_active(True)
+    check("Wieder an mitten im Song: nichts erscheint von selbst",
+          w.beamer.title_label.get_text() == HIDDEN and w.reveal_button.get_sensitive())
+    w.reveal_button.set_active(True)
+    check("Wieder an: Aufdecken (T) zeigt den Titel", w.beamer.title_label.get_text() == current.title)
+    w.timer.stop()
+
+    # Speichern über _save_settings (nicht nur über den Schalter) und Laden in beide Richtungen
+    from musik_bingo.application.game_service import GameService
+    w.beamer_reveal_check.set_active(False)
+    w.service.beamer_reveal = True  # Schalter sagt „aus“ – _save_settings muss das übernehmen
     w._save_settings()
     saved = json.loads((TMP / "data" / "musik-bingo" / "spielstand.json").read_text())
-    check("Einstellung gespeichert", saved["settings"]["beamer_reveal"] is False)
-    from musik_bingo.application.game_service import GameService
-    w._apply_service_to_widgets(GameService.from_dict(saved))
-    check("Nach dem Laden: Haken aus, Aufdecken gesperrt", not w.beamer_reveal_check.get_active()
-          and not w.reveal_button.get_sensitive() and not w.service.beamer_reveal)
-    w._draw_next()
-    current = w.service.game.caller.current
-
+    check("_save_settings übernimmt den Schalter", saved["settings"]["beamer_reveal"] is False)
     w.beamer_reveal_check.set_active(True)
-    w._set_revealed(True)
-    check("Wieder an: Titel erscheint", w.beamer.title_label.get_text() == current.title
-          and w.reveal_button.get_sensitive())
+    w._apply_service_to_widgets(GameService.from_dict(saved))
+    check("Laden „aus“ in ein Fenster mit Haken an: Haken aus, Aufdecken gesperrt",
+          not w.beamer_reveal_check.get_active() and not w.reveal_button.get_sensitive() and not w.service.beamer_reveal)
+    saved["settings"]["beamer_reveal"] = True
+    w._apply_service_to_widgets(GameService.from_dict(saved))
+    check("Laden „an“ in ein Fenster mit Haken aus: Haken an, Aufdecken bedienbar",
+          w.beamer_reveal_check.get_active() and w.reveal_button.get_sensitive() and w.service.beamer_reveal)
     w.beamer_button.set_active(False)
     check("Keine Fehlermeldungen", MESSAGES == [])
 

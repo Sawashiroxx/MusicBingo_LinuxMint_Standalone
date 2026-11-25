@@ -111,6 +111,10 @@ def load_catalogs() -> tuple[list[Catalog], list[str]]:
     return catalogs, errors
 
 
+# Gewinnkontrolle: höchstens so viele Prüfknöpfe (früheste zuerst), der Rest als Text
+MAX_TARGET_BUTTONS = 12
+
+
 class MusikBingoWindow(Gtk.ApplicationWindow):
     def __init__(self, app: Gtk.Application):
         super().__init__(application=app, title="Musik Bingo")
@@ -271,7 +275,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.status = label("Bereit · Spielstände werden nur lokal gespeichert", "small")
         self.status.set_ellipsize(Pango.EllipsizeMode.END)
         status_bar.pack_start(self.status, True, True, 0)
-        status_bar.pack_end(label("Leertaste: ziehen · Rücktaste: zurück · T: Titel aufdecken · P: Timer-Pause · F11: Vollbild", "small"), False, False, 0)
+        status_bar.pack_end(label("Leertaste: ziehen · Rücktaste: zurück · T: Titel aufdecken (wenn erlaubt) · P: Timer-Pause · F11: Vollbild", "small"), False, False, 0)
         root.pack_end(status_bar, False, False, 0)
         self._apply_theme()
 
@@ -658,6 +662,19 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         # Die Knöpfe darüber bleiben an ihrer Stelle.
         warning.set_margin_top(14)
         controls_area.pack_start(self.warning_revealer, False, False, 0)
+        # Gewinnkontrolle kompakt: Das ausführliche Panel liegt weiter unten (auf 1366×768 nur nach Scrollen).
+        # Unter dem Warnkasten, damit dieser und die Knöpfe an ihrer Stelle bleiben.
+        self.target_hint = Gtk.Revealer()
+        hint = add_class(Gtk.Box(spacing=12), "info-box")
+        self.target_hint_label = label("", wrap=True)
+        hint.pack_start(self.target_hint_label, True, True, 0)
+        self.target_hint_button = self._button("Prüfen", self._check_reached_card, "primary",
+                                               tooltip="Öffnet „Bingo prüfen“ für diese Karte")
+        self.target_hint_button.card_number = 0
+        hint.pack_end(self.target_hint_button, False, False, 0)
+        hint.set_margin_top(14)
+        self.target_hint.add(hint)
+        controls_area.pack_start(self.target_hint, False, False, 0)
 
         show_frame, show = self._panel("Beamer & Timer",
                                        "Beamer: zweites Fenster für die Gäste (Doppelklick/F11 = Vollbild). "
@@ -1643,7 +1660,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self._save()
         self._set_status("Songreihenfolge neu gemischt")
 
-    def _verify_bingo(self, _button) -> None:
+    def _verify_bingo(self, _button, preset: int | None = None) -> None:
         game = self.service.game
         if not game.cards:
             return
@@ -1652,15 +1669,15 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         was_paused = self.timer.paused
         self.timer.pause()  # während der Prüfung zählt der Timer nicht weiter
         try:
-            self._check_card(rule)
+            self._check_card(rule, preset)
         finally:
             if not was_paused:
                 self.timer.resume()
             self._update_beamer()
 
-    def _check_card(self, rule: str) -> None:
+    def _check_card(self, rule: str, preset: int | None = None) -> None:
         game = self.service.game
-        answer = dialogs.bingo_check_dialog(self, len(game.cards), rule)
+        answer = dialogs.bingo_check_dialog(self, len(game.cards), rule, preset)
         if answer is None:
             return
         number, name = answer
@@ -1770,8 +1787,10 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             return
         self.service.beamer_reveal = self.beamer_reveal_check.get_active()
         self._sync_reveal_button()
+        # An wie aus: nichts bleibt „aufgedeckt“ hängen – sonst stünde beim Wiedereinschalten sofort der Titel
+        # samt bisher nie gezeigter „Zuletzt“-Liste auf dem Beamer. Aufdecken erst wieder mit T oder Timer.
+        self._set_revealed(False)
         self._save()
-        self._update_beamer()
         self._set_status("Titel werden auf dem Beamer aufgedeckt" if self.service.beamer_reveal
                          else "Titel bleiben auf dem Beamer verborgen")
 
@@ -1813,6 +1832,9 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             self.timer_pause_button.set_sensitive(self.timer.phase != "aus")
         if self.beamer is not None:
             timer_text = self.timer.label() if self.timer.phase != "aus" else ""
+            if self.timer.phase == "auflösung" and not self.service.beamer_reveal:
+                # Nichts wird aufgelöst – „Auflösung“ wäre für die Gäste irreführend
+                timer_text = timer_text.replace("Auflösung · nächster", "Nächster")
             self.beamer.update(build_beamer_state(self.service, self.revealed, timer_text, self.banner))
 
     def _restart_timer_in_follow(self) -> None:
@@ -1841,7 +1863,8 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         phase_before = self.timer.phase
         event = self.timer.tick()
         if event == "reveal":
-            self._set_revealed(True)
+            if self.service.beamer_reveal:
+                self._set_revealed(True)
             self._pause_after_timer()
         elif event == "next":
             caller = self.service.game.caller
@@ -1926,7 +1949,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.winners_list.show_all()
 
     def _render_target_status(self) -> None:
-        """Gewinnkontrolle: Karten mit erreichtem Ziel als Knöpfe, die direkt die Bingo-Prüfung öffnen."""
+        """Gewinnkontrolle: Karten mit erreichtem Ziel – früheste zuerst – als Knöpfe zur Bingo-Prüfung."""
         if not hasattr(self, "target_cards"):
             return
         for child in self.target_cards.get_children():
@@ -1935,41 +1958,64 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         target = WIN_TARGET_LABELS[self.service.win_target]
         if not game.cards or not game.caller.drawn:
             self.target_status_label.set_text(f"Ziel: {target} · Noch kein Song gezogen.")
+            self.target_hint.set_reveal_child(False)
+            self.target_hint_button.card_number = 0
             self.target_cards.show_all()
             return
         status = self.service.target_status()
         parts = [f"Ziel: {target}"]
+        tied = status.tied
+        if tied:
+            parts.append(f"Gleichstand: {len(tied)} Karten beim selben Song (Nr. {status.reached[0][1]})")
         if status.reached:
             count = len(status.reached)
-            parts.append(f"{count} Karte hat das Ziel erreicht" if count == 1
-                         else f"{count} Karten haben das Ziel erreicht – Gleichstand")
+            parts.append("1 Karte hat das Ziel erreicht" if count == 1 else f"{count} Karten haben das Ziel erreicht")
         else:
             parts.append("noch keine Karte am Ziel")
         if status.entered:
             parts.append("eingetragen: " + ", ".join(f"#{number}" for number in status.entered))
+        if status.entered_open:
+            parts.append("nach „Zurück“ nicht mehr am Ziel: "
+                         + ", ".join(f"#{number}" for number in status.entered_open))
         if status.one_missing:
             parts.append(f"{status.one_missing} Karte{'' if status.one_missing == 1 else 'n'} "
                          "fehlt nur noch ein Song")
         self.target_status_label.set_text(" · ".join(parts))
-        for number in status.reached[:40]:
-            button = self._button(f"Karte #{number} prüfen", self._check_reached_card, "primary",
-                                  tooltip="Öffnet die Bingo-Prüfung für diese Karte")
+        shown = status.reached[:MAX_TARGET_BUTTONS]
+        for number, song in shown:
+            earlier = number in status.earlier
+            text = f"Karte #{number} prüfen · seit Song {song}" + (" (hat schon gewonnen)" if earlier else "")
+            button = self._button(text, self._check_reached_card, *(() if earlier else ("primary",)),
+                                  tooltip="Öffnet „Bingo prüfen“ für diese Karte")
             button.card_number = number
             self.target_cards.add(button)
-        if len(status.reached) > 40:
-            self.target_cards.add(label(f"… und {len(status.reached) - 40} weitere", "muted", "small"))
+        if len(status.reached) > len(shown):
+            rest = status.reached[len(shown):]
+            self.target_cards.add(label("Weitere: " + ", ".join(f"#{number}" for number, _song in rest[:30])
+                                        + (" …" if len(rest) > 30 else ""), "muted", "small", wrap=True))
         self._no_focus_on_click(self.target_cards)
         self.target_cards.show_all()
+        # Kompakte Zeile oben – für die früheste noch nicht eingetragene Karte
+        if status.reached:
+            first, song = status.reached[0]
+            if tied:
+                text = (f"Gleichstand bei Song {song}: " + ", ".join(f"Karte #{number}" for number in tied[:6])
+                        + (" …" if len(tied) > 6 else ""))
+            else:
+                text = f"Karte #{first} hat „{target}“ seit Song {song}"
+                if len(status.reached) > 1:
+                    text += f" · {len(status.reached) - 1} weitere (siehe Gewinnkontrolle unten)"
+            self.target_hint_label.set_text(text)
+            self.target_hint_button.set_label(f"Karte #{first} prüfen")
+            self.target_hint_button.card_number = first
+        else:
+            self.target_hint_button.card_number = 0
+        self.target_hint.set_reveal_child(bool(status.reached))
 
     def _check_reached_card(self, button: Gtk.Button) -> None:
-        was_paused = self.timer.paused
-        self.timer.pause()  # während der Prüfung zählt der Timer nicht weiter
-        try:
-            self._show_card_result(button.card_number)
-        finally:
-            if not was_paused and not self.timer_hold:
-                self.timer.resume()
-            self._update_beamer()
+        """Prüfknopf der Gewinnkontrolle: „Bingo prüfen“ mit vorbelegter Kartennummer (Name kann dazu)."""
+        if button.card_number:
+            self._verify_bingo(button, preset=button.card_number)
 
     def _remove_winner(self, _button, index: int) -> None:
         if not 0 <= index < len(self.service.winners):
@@ -2932,7 +2978,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
                 "warnt bei Titeln, die nicht auf den Karten stehen.",
             ]),
             ("Tastatur", ["Leertaste: nächster Song", "Rücktaste: Ziehung zurücknehmen",
-                          "T: Titel zeigen/verbergen (auch auf dem Beamer)", "P: Song-Timer pausieren/fortsetzen",
+                          "T: Titel zeigen/verbergen (auch auf dem Beamer; gesperrt, wenn „Titel auf dem Beamer aufdecken“ aus ist)", "P: Song-Timer pausieren/fortsetzen",
                           "F11: Vollbild",
                           "Die Kürzel wirken auf der Spielleitung immer – außer beim Tippen im Suchfeld "
                           "oder nach Tab/Pfeiltasten (dann bedient die Leertaste das markierte Element; "
@@ -2941,6 +2987,10 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
                 "Mit Kartennummer: Nummer eingeben → Karte mit Gewinnlinie wird angezeigt.",
                 "Ohne Kartennummer (unleserlich, fehlt): „Ohne Kartennummer …“ → die vorgelesenen Songs "
                 "der Gewinnreihe anhaken → die App zeigt, ob alle gespielt sind, und findet die Karte.",
+                "Gewinnkontrolle: Nach jedem Song prüft die App alle Karten. Hat eine das Ziel erreicht, erscheint "
+                "unter den Knöpfen „Karte #… prüfen“ (mit Song-Nr., ab wann sie voll ist) – auch wenn sich "
+                "niemand meldet. Gleichstand nur, wenn mehrere Karten beim selben Song ans Ziel kamen. "
+                "Der Beamer zeigt davon nichts.",
             ]),
             ("Runden & Gewinnziel", [
                 "Gewinnziel oben rechts wählen. Vor dem ersten Song gewählt, beginnen auch die nächsten Runden "

@@ -6,7 +6,7 @@ from musik_bingo.domain.caller import Caller
 from musik_bingo.domain.card_generator import generate_cards, required_songs, winning_lines
 from musik_bingo.domain.models import BingoCard, Song
 from musik_bingo.domain.forecast import (
-    WIN_TARGETS, Forecast, Guarantee, card_status, forecast, guarantee, missing_to_target, target_reached,
+    WIN_TARGETS, Forecast, Guarantee, card_status, forecast, guarantee, missing_to_target, reached_at, target_reached,
 )
 from musik_bingo.domain.evening import (
     DEFAULT_TITLE, MAX_NAME_LENGTH, MAX_WINNERS, Winner, check_new_winner, clean_event_title, clean_text, next_stage,
@@ -25,9 +25,21 @@ LEGACY_TARGETS = {"ytmusic": "youtube"}
 @dataclass(frozen=True)
 class TargetStatus:
     """Gewinnkontrolle für die Spielleitung: Welche Karten haben das aktuelle Ziel erreicht?"""
-    reached: tuple[int, ...]   # Kartennummern mit erreichtem Ziel, noch nicht eingetragen
-    entered: tuple[int, ...]   # in dieser Runde und Stufe schon als Gewinner eingetragen
-    one_missing: int           # Karten, denen genau noch ein Song fehlt
+    # (Kartennummer, Song-Nr., bei dem das Ziel erreicht wurde) – noch nicht eingetragen, früheste zuerst
+    reached: tuple[tuple[int, int], ...]
+    entered: tuple[int, ...]       # in dieser Runde und Stufe schon als Gewinner eingetragen
+    entered_open: tuple[int, ...]  # davon nach „Zurück“ nicht mehr am Ziel
+    earlier: tuple[int, ...]       # Karten aus ``reached``, die schon eine andere Runde/Stufe gewonnen haben
+    one_missing: int               # Karten (nicht eingetragen), denen genau noch ein Song fehlt
+
+    @property
+    def tied(self) -> tuple[int, ...]:
+        """Karten, die beim frühesten Song gleichzeitig ans Ziel kamen – nur bei mehr als einer ein Gleichstand."""
+        if not self.reached:
+            return ()
+        first = self.reached[0][1]
+        cards = tuple(card for card, song in self.reached if song == first)
+        return cards if len(cards) > 1 else ()
 
 
 @dataclass
@@ -147,19 +159,28 @@ class GameService:
     def target_status(self) -> TargetStatus:
         """Prüft alle Karten gegen das aktuelle Gewinnziel – nur für die Spielleitung, nicht für den Beamer."""
         game = self.game
+        drawn = game.caller.drawn
         entered = {winner.card for winner in self.winners
                    if winner.round == self.round_number and winner.target == self.win_target}
-        reached: list[int] = []
+        won_before = {winner.card for winner in self.winners} - entered
+        reached: list[tuple[int, int]] = []
+        entered_open: list[int] = []
         one_missing = 0
-        if game.caller.drawn:
-            for number, card in enumerate(game.cards, start=1):
-                missing = missing_to_target(card, game.size, game.free_space, game.caller.drawn,
-                                            self.win_target, game.diagonal_wins)
-                if missing == 0 and number not in entered:
-                    reached.append(number)
-                elif missing == 1:
-                    one_missing += 1
-        return TargetStatus(tuple(reached), tuple(sorted(entered)), one_missing)
+        for number, card in enumerate(game.cards, start=1):
+            missing = missing_to_target(card, game.size, game.free_space, drawn, self.win_target, game.diagonal_wins)
+            if number in entered:
+                if missing:
+                    entered_open.append(number)
+            elif missing == 0:
+                song = reached_at(card, game.size, game.free_space, drawn, self.win_target, game.diagonal_wins)
+                reached.append((number, song or 0))
+            elif missing == 1:
+                one_missing += 1
+        if not drawn:
+            reached, one_missing = [], 0  # vor dem ersten Song hat niemand gewonnen (z. B. 1 Reihe durchs Freifeld)
+        reached.sort(key=lambda item: (item[1], item[0]))
+        earlier = tuple(number for number, _song in reached if number in won_before)
+        return TargetStatus(tuple(reached), tuple(sorted(entered)), tuple(entered_open), earlier, one_missing)
 
     def forecast(self, runs: int = 300) -> Forecast:
         game = self.game

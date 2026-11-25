@@ -89,12 +89,12 @@ def scenario(w):
     for song in card.songs[:5]:
         w.service.draw_song(song)
     shown = {}
-    dialogs.bingo_check_dialog = lambda parent, count, rule: (1, "Oma")
+    dialogs.bingo_check_dialog = lambda parent, count, rule, preset=None: (1, "Oma")
     dialogs.bingo_result_dialog = lambda *args: shown.update(wins=args[7], cells=args[8])
     w._verify_bingo(None)
     check("Bingo-Prüfung erkennt Reihe 1", "Reihe 1" in shown.get("wins", []))
     check("Gewinnfelder markiert", {0, 1, 2, 3, 4} <= shown.get("cells", set()))
-    dialogs.bingo_check_dialog = lambda parent, count, rule: (2, "")
+    dialogs.bingo_check_dialog = lambda parent, count, rule, preset=None: (2, "")
     w._verify_bingo(None)
 
     open_song = next(s for s in w.service.game.caller.pool if not w.service.game.caller.is_drawn(s))
@@ -122,7 +122,7 @@ def scenario(w):
           and len(w.service.game.caller.drawn) == before_switch)
     w._on_pointer(w, None)  # Mausklick beendet die Tastatur-Navigation
     result = {}
-    dialogs.bingo_check_dialog = lambda parent, count, rule: (1, "Oma")
+    dialogs.bingo_check_dialog = lambda parent, count, rule, preset=None: (1, "Oma")
     dialogs.bingo_result_dialog = lambda *args: result.update(reached=args[10], full=args[11], label=args[9])
     w._verify_bingo(None)
     check("Volle Karte noch nicht erreicht", result.get("reached") is False and result.get("label") == "Volle Karte")

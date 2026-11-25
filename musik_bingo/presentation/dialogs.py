@@ -333,8 +333,12 @@ WITHOUT_NUMBER = 0  # Rückgabe statt Kartennummer: „Ohne Kartennummer prüfen
 MAX_LISTED_CARDS = 8
 
 
-def bingo_check_dialog(parent: Gtk.Window, card_count: int, rule: str) -> tuple[int, str] | None:
-    """Rückgabe (Kartennummer, Name); Kartennummer WITHOUT_NUMBER = Prüfung über die Songs."""
+def bingo_check_dialog(parent: Gtk.Window, card_count: int, rule: str,
+                       preset: int | None = None) -> tuple[int, str] | None:
+    """Rückgabe (Kartennummer, Name); Kartennummer WITHOUT_NUMBER = Prüfung über die Songs.
+
+    ``preset``: Kartennummer vorbelegen (Prüfknopf der Gewinnkontrolle) – der Fokus steht dann im Namensfeld.
+    """
     dialog, content, _ok = base_dialog(parent, "Bingo prüfen", "Prüfen", 420)
     dialog.add_button("Ohne Kartennummer …", RESPONSE_WITHOUT_NUMBER)
     content.pack_start(label("Nummer der gedruckten Karte eingeben. Geprüft werden nur bereits gezogene Songs.",
@@ -342,7 +346,7 @@ def bingo_check_dialog(parent: Gtk.Window, card_count: int, rule: str) -> tuple[
     # Bereich bewusst größer als die Kartenzahl: Der SpinButton kappt Eingaben sonst still auf den Bereich –
     # „1600“ würde als Karte 160 geprüft, ein leeres Feld als Karte 1. So meldet die Prüfung „Ungültige Kartennummer“.
     number = Gtk.SpinButton.new_with_range(0, 99999, 1)
-    number.set_value(1)
+    number.set_value(preset or 1)
     number.set_activates_default(True)
     content.pack_start(field("Kartennummer", number), False, False, 0)
     name = Gtk.Entry()
@@ -351,7 +355,7 @@ def bingo_check_dialog(parent: Gtk.Window, card_count: int, rule: str) -> tuple[
     content.pack_start(field("Name", name), False, False, 0)
     content.pack_start(label(f"Gewinnregel dieser Runde: {rule}.", "muted", "small", wrap=True), False, False, 0)
     dialog.show_all()
-    number.grab_focus()
+    (name if preset else number).grab_focus()
     response = dialog.run()
     number.update()
     # 0 = leeres/ungültiges Feld → -1, damit der Aufrufer „Ungültige Kartennummer“ meldet (0 heißt „ohne Nummer“)
