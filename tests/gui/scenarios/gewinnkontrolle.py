@@ -102,6 +102,10 @@ def scenario(w):
           len(status.reached) >= 2 and status.reached[0][0] == 1
           and "Gleichstand" not in w.target_status_label.get_text()
           and "Gleichstand" not in w.target_hint_label.get_text())
+    next_card = status.reached[1][0]
+    w.target_hint_ignore.clicked()
+    check("„Nicht vergeben“: Hinweis springt zur nächsten Karte, Panel behält beide",
+          w.target_hint_button.card_number == next_card and 1 in [b.card_number for b in panel_buttons(w)])
 
     w.beamer_button.set_active(False)
     pump(0.3)

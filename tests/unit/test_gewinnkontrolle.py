@@ -161,6 +161,21 @@ class TargetStatusServiceTests(unittest.TestCase):
         self.assertEqual(set(status.reached[1:]), {(n, 9) for n in range(2, 10)})
         service.add_winner(1, "Anna")  # #1 eingetragen → die übrigen 8 kamen gleichzeitig ans Ziel
         self.assertEqual(service.target_status().tied, tuple(range(2, 10)))
+        service.add_winner(2, "Ben")  # Partner eingetragen: Gleichstand bleibt sichtbar
+        status = service.target_status()
+        self.assertEqual(status.tied, tuple(range(2, 10)))
+        self.assertIn((2, 9), status.entered_reached)
+
+    def test_one_missing_is_exact_after_many_songs(self):
+        """Nach 25 Songs gibt es Karten mit 1, 2, 3 … fehlenden Songs – gezählt werden genau die mit einem."""
+        order = random.Random(11).sample(self.service.game.songs, 25)
+        for song in order:
+            self.service.draw_song(song)
+        status = self.service.target_status()
+        two_missing = sum(1 for card in self.cards()
+                          if missing_to_target(card, 3, True, self.service.game.caller.drawn, "volle_karte") == 2)
+        self.assertGreater(two_missing, 0)  # sonst prüft der Test nichts
+        self.assertEqual(status.one_missing, self.exact_one_missing())
 
     def test_entered_winner_is_listed_separately(self):
         card = self.cards()[0]

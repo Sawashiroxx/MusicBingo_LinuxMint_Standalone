@@ -31,14 +31,17 @@ class TargetStatus:
     entered_open: tuple[int, ...]  # davon nach „Zurück“ nicht mehr am Ziel
     earlier: tuple[int, ...]       # Karten aus ``reached``, die schon eine andere Runde/Stufe gewonnen haben
     one_missing: int               # Karten (nicht eingetragen), denen genau noch ein Song fehlt
+    entered_reached: tuple[tuple[int, int], ...] = ()  # eingetragene Karten am Ziel: (Karte, Song-Nr.)
 
     @property
     def tied(self) -> tuple[int, ...]:
-        """Karten, die beim frühesten Song gleichzeitig ans Ziel kamen – nur bei mehr als einer ein Gleichstand."""
+        """Karten, die mit der frühesten offenen Karte beim selben Song ans Ziel kamen – auch schon eingetragene.
+        Nur bei mehr als einer Karte ein Gleichstand."""
         if not self.reached:
             return ()
-        first = self.reached[0][1]
-        cards = tuple(card for card, song in self.reached if song == first)
+        first = self.reached[0][1]  # früheste noch offene Karte
+        everything = self.reached + self.entered_reached
+        cards = tuple(sorted(card for card, song in everything if song == first))
         return cards if len(cards) > 1 else ()
 
 
@@ -164,6 +167,7 @@ class GameService:
                    if winner.round == self.round_number and winner.target == self.win_target}
         won_before = {winner.card for winner in self.winners} - entered
         reached: list[tuple[int, int]] = []
+        entered_reached: list[tuple[int, int]] = []
         entered_open: list[int] = []
         one_missing = 0
         for number, card in enumerate(game.cards, start=1):
@@ -171,6 +175,9 @@ class GameService:
             if number in entered:
                 if missing:
                     entered_open.append(number)
+                else:
+                    song = reached_at(card, game.size, game.free_space, drawn, self.win_target, game.diagonal_wins)
+                    entered_reached.append((number, song or 0))
             elif missing == 0:
                 song = reached_at(card, game.size, game.free_space, drawn, self.win_target, game.diagonal_wins)
                 reached.append((number, song or 0))
@@ -180,7 +187,8 @@ class GameService:
             reached, one_missing = [], 0  # vor dem ersten Song hat niemand gewonnen (z. B. 1 Reihe durchs Freifeld)
         reached.sort(key=lambda item: (item[1], item[0]))
         earlier = tuple(number for number, _song in reached if number in won_before)
-        return TargetStatus(tuple(reached), tuple(sorted(entered)), tuple(entered_open), earlier, one_missing)
+        return TargetStatus(tuple(reached), tuple(sorted(entered)), tuple(entered_open), earlier, one_missing,
+                            tuple(entered_reached))
 
     def forecast(self, runs: int = 300) -> Forecast:
         game = self.game

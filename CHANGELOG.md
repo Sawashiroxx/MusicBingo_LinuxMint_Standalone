@@ -9,6 +9,7 @@
   - **Gleichstand stimmt:** Je Karte steht, seit welchem Song sie das Ziel hat, die früheste steht vorn. „Gleichstand“ erscheint nur noch, wenn mehrere Karten beim selben Song ans Ziel kamen. Vorher galt jede zweite volle Karte als Gleichstand, auch wenn die erste drei Songs früher fertig war.
   - **Mit Namen eintragen:** Der Prüfknopf öffnet „Bingo prüfen“ mit vorbelegter Kartennummer, der Name kann dazu. Vorher wurden Gewinner immer ohne Namen eingetragen.
   - Nach „Zurück“ ist eine eingetragene Karte als „nicht mehr am Ziel“ markiert und zählt nicht mehr bei „fehlt nur noch ein Song“. Karten mit früherem Gewinn tragen „(hat schon gewonnen)“. Es gibt höchstens 12 Knöpfe, der Rest steht als Text.
+  - **„Nicht vergeben“** in der Hinweiszeile blendet eine Reservekarte oben aus. Die Zeile springt dann zur nächsten Karte, im Panel bleibt die Reservekarte sichtbar. Ein Gleichstand bleibt sichtbar, auch wenn eine der Karten schon eingetragen ist. Die Hinweiszeile nennt „(hat schon gewonnen)“.
 - Spotify verdeckt die Steuerung nicht mehr: Die Spotify-App für Linux springt bei jedem neuen Titel selbst in den Vordergrund. Die Steuerung holt sich danach automatisch zurück. Das passiert nur, wenn sie vorher vorn war, nie über einen offenen Dialog der App hinweg und nicht bei YouTube.
 - Zufallsmix: Neue Listen mit deutschen Hits 1990 bis 2024, aus den offiziellen Single-Jahrescharts, jeweils Platz 1–10 je Jahr:
   - 1990er-Hits (97 Songs)

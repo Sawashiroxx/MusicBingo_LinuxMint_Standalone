@@ -56,10 +56,12 @@ def scenario(w):
           and "Auflösung" not in w.beamer.timer_label.get_text()
           and w.beamer.timer_label.get_text().startswith("Nächster Song in") and not w.revealed)
     w.beamer_reveal_check.set_active(True)
-    check("Wieder an mitten im Song: nichts erscheint von selbst",
-          w.beamer.title_label.get_text() == HIDDEN and w.reveal_button.get_sensitive())
+    check("Wieder an mitten im Song: nichts erscheint von selbst, kein „Auflösung“ ohne Titel",
+          w.beamer.title_label.get_text() == HIDDEN and w.reveal_button.get_sensitive()
+          and "Auflösung" not in w.beamer.timer_label.get_text())
     w.reveal_button.set_active(True)
-    check("Wieder an: Aufdecken (T) zeigt den Titel", w.beamer.title_label.get_text() == current.title)
+    check("Wieder an: Aufdecken (T) zeigt den Titel samt „Auflösung“",
+          w.beamer.title_label.get_text() == current.title and "Auflösung" in w.beamer.timer_label.get_text())
     w.timer.stop()
 
     # Speichern über _save_settings (nicht nur über den Schalter) und Laden in beide Richtungen
