@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field, replace
 
+from musik_bingo.application.beamer_state import MAX_RECENT, RECENT_SIZES
 from musik_bingo.application.song_timer import SongTimer
 
 from musik_bingo.domain.caller import Caller
@@ -92,6 +93,9 @@ class GameService:
         # Titel auf dem Beamer aufdecken (Taste T / Auflösung des Timers). Aus: Die Gäste sehen nie einen
         # Songtitel – auch nicht in „Zuletzt“. Die Spielleitung sieht ihn weiter im Hauptfenster.
         self.beamer_reveal = True
+        # „Zuletzt“ auf dem Beamer: Anzahl früherer Songs (0 = aus) und Schriftgröße – für weit entfernte Plätze
+        self.beamer_recent_count = 3
+        self.beamer_recent_size = "normal"
 
     def set_song_text(self, text: str) -> list[Song]:
         self.song_text = text
@@ -353,6 +357,8 @@ class GameService:
                 "reveal_seconds": self.reveal_seconds,
                 "pause_after_timer": self.pause_after_timer,
                 "beamer_reveal": self.beamer_reveal,
+                "beamer_recent_count": self.beamer_recent_count,
+                "beamer_recent_size": self.beamer_recent_size,
             },
             "winners": [winner.to_dict() for winner in self.winners],
             "songs": [song.to_dict() for song in self.game.songs],
@@ -546,6 +552,15 @@ class GameService:
         if not isinstance(beamer_reveal, bool):
             raise ValueError("Ungültige Einstellung „Titel auf dem Beamer aufdecken“ im Spielstand.")
         service.beamer_reveal = beamer_reveal
+        recent_count = settings.get("beamer_recent_count", 3)
+        if (not isinstance(recent_count, int) or isinstance(recent_count, bool)
+                or not 0 <= recent_count <= MAX_RECENT):
+            raise ValueError("Ungültige Anzahl für „Zuletzt“ auf dem Beamer im Spielstand.")
+        service.beamer_recent_count = recent_count
+        recent_size = settings.get("beamer_recent_size", "normal")
+        if not isinstance(recent_size, str) or recent_size not in RECENT_SIZES:  # Liste/Objekt: nicht hashbar
+            raise ValueError("Ungültige Größe für „Zuletzt“ auf dem Beamer im Spielstand.")
+        service.beamer_recent_size = recent_size
         raw_winners = data.get("winners", [])
         if not isinstance(raw_winners, list) or len(raw_winners) > MAX_WINNERS:
             raise ValueError("Ungültige Gewinnerliste im Spielstand.")

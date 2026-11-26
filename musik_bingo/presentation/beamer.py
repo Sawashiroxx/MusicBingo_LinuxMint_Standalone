@@ -61,8 +61,11 @@ class BeamerWindow(Gtk.Window):
         self.banner_label.set_lines(2)
         self.banner_label.set_ellipsize(Pango.EllipsizeMode.END)
         self.banner.pack_start(self.banner_label, True, True, 0)
-        self.recent_label = label("", "beamer-recent", wrap=True, xalign=0.5)
+        # „Zuletzt“: genau eine Zeile je Song. Ohne Umbruch – eine umbrochene Fortsetzung („& Anastacia“) sähe
+        # zentriert wie ein eigener Song aus und kostete Höhe. Zu lange Zeilen enden mit „…“ (Titel steht vorn).
+        self.recent_label = label("", "beamer-recent", xalign=0.5)
         self.recent_label.set_justify(Gtk.Justification.CENTER)
+        self.recent_label.set_ellipsize(Pango.EllipsizeMode.END)
         box.pack_start(self.event_label, False, False, 0)
         box.pack_start(self.round_label, False, False, 0)
         middle = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=MIDDLE_SPACING)
@@ -80,6 +83,7 @@ class BeamerWindow(Gtk.Window):
                                                                  and self.host._on_key_release(self.host, event)))
         self.state: BeamerState | None = None
         self.scale = 1.0
+        self.recent_scale = 1.0  # Größe von „Zuletzt“ (Einstellung), zusätzlich zur Einpass-Stufe
         self._scaled = (self.event_label, self.round_label, self.song_label, self.title_label, self.artist_label,
                         self.timer_label, self.banner_label, self.recent_label)
         self._fit_key: tuple | None = None
@@ -143,9 +147,18 @@ class BeamerWindow(Gtk.Window):
             attributes.insert(Pango.attr_scale_new(scale))
         for widget in self._scaled:
             widget.set_attributes(attributes)
+        self._apply_recent_scale()
         self.box.set_border_width(round(BORDER * scale))
         self.box.set_spacing(round(SPACING * scale))
         self.middle.set_spacing(round(MIDDLE_SPACING * scale))
+
+    def _apply_recent_scale(self) -> None:
+        factor = self.scale * self.recent_scale
+        attributes = None
+        if factor != 1.0:
+            attributes = Pango.AttrList()
+            attributes.insert(Pango.attr_scale_new(factor))
+        self.recent_label.set_attributes(attributes)
 
     def needed_height(self, width: int) -> int:
         """Höhe, die der Inhalt bei dieser Breite in der aktuellen Schriftgröße braucht."""
@@ -191,10 +204,14 @@ class BeamerWindow(Gtk.Window):
         self.timer_label.set_visible(bool(state.timer))
         self.banner_label.set_text(state.banner)
         self.banner.set_visible(bool(state.banner))
-        self.recent_label.set_text("Zuletzt: " + " · ".join(state.recent) if state.recent else "")
+        # Ein Song pro Zeile – aus der Ferne lesbarer als eine umbrechende Kette mit „·“
+        self.recent_label.set_text("Zuletzt\n" + "\n".join(state.recent) if state.recent else "")
+        if state.recent_scale != self.recent_scale:
+            self.recent_scale = state.recent_scale
+            self._apply_recent_scale()
         # Nur neu einpassen, wenn sich die Textmenge ändert – der Countdown läuft jede Sekunde durch update()
         key = (state.event_title, state.round_line, state.song_line, state.title, state.artist, bool(state.timer),
-               state.banner, state.recent)
+               state.banner, state.recent, state.recent_scale)
         if key != self._fit_key:
             self._fit_key = key
             self.fit()

@@ -51,17 +51,24 @@ fi
 KURZVERSION="${VERSION%.*}"
 CHANGELOG_TEXT="$(aus_head CHANGELOG.md)"
 
-# Abschnitt "## <major>.<minor>" (danach Leerzeichen oder Zeilenende) bis zum nächsten "## ".
-NOTIZEN="$(awk -v kopf="## $KURZVERSION" '
-  /^## / {
-    if (drin) exit
-    rest = substr($0, length(kopf) + 1)
-    if (index($0, kopf) == 1 && (rest == "" || rest ~ /^[[:space:]]/)) drin = 1
-  }
-  drin { print }
-' <<< "$CHANGELOG_TEXT")"
+# Abschnitt mit genau dieser Überschrift (danach Leerzeichen oder Zeilenende) bis zum nächsten "## ".
+abschnitt() {
+  awk -v kopf="## $1" '
+    /^## / {
+      if (drin) exit
+      rest = substr($0, length(kopf) + 1)
+      if (index($0, kopf) == 1 && (rest == "" || rest ~ /^[[:space:]]/)) drin = 1
+    }
+    drin { print }
+  ' <<< "$CHANGELOG_TEXT"
+}
+
+# Zuerst die genaue Version ("## 2.6.1"), sonst die Kurzform ("## 2.6"). Ein Fehlerbehebungs-Release
+# (2.6.1) mit eigenem Abschnitt bekäme sonst die Notizen von 2.6.0, weil nur "## 2.6" gesucht wurde.
+NOTIZEN="$(abschnitt "$VERSION")"
+[[ -n "$NOTIZEN" ]] || NOTIZEN="$(abschnitt "$KURZVERSION")"
 [[ -n "$NOTIZEN" ]] \
-  || fehler "Kein Abschnitt \"## $KURZVERSION …\" in CHANGELOG.md gefunden – bitte Änderungen für Version $VERSION eintragen."
+  || fehler "Kein Abschnitt \"## $VERSION …\" oder \"## $KURZVERSION …\" in CHANGELOG.md gefunden – bitte Änderungen für Version $VERSION eintragen."
 
 # --- Pakete bauen ---------------------------------------------------------------
 mkdir -p "$AUSGABE"

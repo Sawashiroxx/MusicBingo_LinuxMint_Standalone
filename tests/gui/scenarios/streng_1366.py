@@ -267,6 +267,32 @@ def scenario(w):
     w.beamer_button.set_active(False)
     pump(0.3)
 
+    # 5b. Mausrad über Zahlenfeld/Auswahlliste rollt die Seite, statt den Wert zu ändern. „Beamer & Timer“ liegt
+    # auf 1366×768 unter dem sichtbaren Bereich – wer hinunterrollte und mit dem Zeiger über „Song-Timer“ oder
+    # „Zuletzt“ kam, schaltete unbemerkt den Timer ein oder änderte Anzahl/Größe auf dem Beamer.
+    scroller = w.draw_button.get_ancestor(Gtk.ScrolledWindow)
+    adjustment = scroller.get_vadjustment()
+    settings = lambda: (w.timer_spin.get_value_as_int(), w.reveal_spin.get_value_as_int(),  # noqa: E731
+                        w.recent_count_spin.get_value_as_int(), w.recent_size_combo.get_active_id())
+    before = settings()
+    rolled = []
+    for widget, part, wheel in ((w.timer_spin, 4, "4"), (w.reveal_spin, 4, "5"), (w.recent_count_spin, 4, "5"),
+                                (w.recent_count_spin, 4, "4"), (w.recent_size_combo, 2, "5")):
+        top = widget.translate_coordinates(scroller.get_child().get_child(), 0, 0)[1]  # Lage auf der Seite
+        adjustment.set_value(top - 250)  # Feld mitten in den sichtbaren Bereich holen
+        pump(0.4)
+        start = adjustment.get_value()
+        x, y, width, height = screen_box(w, widget)
+        xdo("mousemove", str(x + width // part), str(y + height // 2))
+        xdo("click", wheel)  # Mausrad: 4 = hoch, 5 = runter
+        pump(0.5)
+        rolled.append(adjustment.get_value() != start)
+    check(f"Mausrad über Timer-, Auflösungs-, „Zuletzt“-Feld und Größenliste ändert keinen Wert ({settings()})",
+          settings() == before)
+    check(f"… und rollt stattdessen die Seite ({rolled})", all(rolled) and 0 < start < adjustment.get_upper())
+    adjustment.set_value(0)
+    pump(0.3)
+
     # 6. Speicherfehler (z. B. Platte voll) wird sichtbar gemeldet (F-04)
     def disk_full(_service):
         raise OSError(28, "No space left on device")

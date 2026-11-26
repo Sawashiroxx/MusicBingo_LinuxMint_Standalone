@@ -39,6 +39,21 @@ CHANGELOG_WITHOUT_SECTION = """# Änderungsprotokoll
 
 - Alter Eintrag.
 """
+# Fehlerbehebungs-Release mit eigenem Abschnitt neben dem Abschnitt der Kurzversion (wie 2.6.1 neben 2.6)
+CHANGELOG_WITH_PATCH_SECTION = f"""# Änderungsprotokoll
+
+## {TEST_VERSION} – Testmonat 2099
+
+- Behoben: Eintrag nur für das Fehlerbehebungs-Release.
+
+{TEST_HEADING}
+
+- Neu: Testeintrag für das Release.
+
+## 9.8.70 – ähnliche Nummer
+
+- Fremder Eintrag mit gleichem Anfang.
+"""
 FILES_FROM_WORKTREE = (
     "scripts/build-release.sh",
     "CHANGELOG.md",
@@ -194,6 +209,42 @@ class ReleaseBuildTests(unittest.TestCase):
 
 
 @unittest.skipUnless(_git_available(), "git oder Git-Repository nicht verfügbar")
+class ReleaseNotesSectionTests(unittest.TestCase):
+    """Regression: v2.6.1 hätte die Notizen von 2.6.0 bekommen – gesucht wurde nur „## 2.6“."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.dist = Path(self._tmp.name) / "ausgabe"
+
+    def _notes(self, changelog: str) -> str:
+        repo = _make_repo(self._tmp.name, changelog=changelog)
+        result = _build(repo, f"v{TEST_VERSION}", str(self.dist))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        return (self.dist / "RELEASE_NOTES.md").read_text(encoding="utf-8")
+
+    def test_exact_version_section_wins_over_short_version(self):
+        notes = self._notes(CHANGELOG_WITH_PATCH_SECTION)
+        self.assertTrue(notes.startswith(f"## {TEST_VERSION} – Testmonat 2099"), notes[:80])
+        self.assertIn("Eintrag nur für das Fehlerbehebungs-Release", notes)
+        self.assertNotIn("Testeintrag für das Release", notes)  # Abschnitt „## 9.8“ = Version 9.8.0
+        self.assertNotIn("Fremder Eintrag", notes)
+        self.assertIn("bash scripts/install-desktop.sh", notes)
+
+    def test_exact_version_section_is_found_below_other_sections(self):
+        sections = CHANGELOG_WITH_PATCH_SECTION.split("\n## ")
+        reordered = "\n## ".join([sections[0], sections[3], sections[2], sections[1]])
+        notes = self._notes(reordered)
+        self.assertTrue(notes.startswith(f"## {TEST_VERSION} – Testmonat 2099"), notes[:80])
+        self.assertNotIn("Fremder Eintrag", notes)
+        self.assertNotIn("Testeintrag für das Release", notes)
+
+    def test_short_version_section_is_used_without_exact_one(self):
+        notes = self._notes(CHANGELOG_WITH_SECTION)
+        self.assertTrue(notes.startswith(TEST_HEADING), notes[:80])
+
+
+@unittest.skipUnless(_git_available(), "git oder Git-Repository nicht verfügbar")
 class ReleaseBuildFailureTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -214,6 +265,7 @@ class ReleaseBuildFailureTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("CHANGELOG.md", result.stderr)
         self.assertIn("## 9.8", result.stderr)
+        self.assertIn(f"## {TEST_VERSION}", result.stderr)
         self.assertFalse(list(self.dist.glob("*.zip")))
 
     def test_pyproject_version_mismatch_fails(self):

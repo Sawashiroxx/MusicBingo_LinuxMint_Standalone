@@ -1,5 +1,18 @@
 # Änderungsprotokoll
 
+## 2.6.1 – November 2026
+
+„Zuletzt“ auf dem Beamer ist einstellbar, für weit entfernte Plätze. Dazu die Korrekturen aus der Prüfung dieser Einstellungen.
+
+- **„Zuletzt“ auf dem Beamer einstellbar**, für weit entfernte Plätze: unter „Beamer & Timer“ die Anzahl früherer Songs (0–5, neuer Standard **3** statt 5) und die Größe (Normal, Groß, Sehr groß). Jeder Song steht jetzt in einer eigenen Zeile statt in einer umbrechenden Kette mit „·“. Passt nicht alles auf den Beamer, verkleinert die App wie bisher den ganzen Inhalt gleichmäßig. Ohne „Titel auf dem Beamer aufdecken“ ruhen die Einstellungen. Gespeichert im Spielstand, alte Stände nutzen 3 und Normal.
+- Behoben nach der Prüfung der neuen Einstellungen (Claude Fable 5.2):
+  - **Wirklich ein Song pro Zeile:** Lange Einträge unter „Zuletzt“ brachen bei „Groß“/„Sehr groß“ um (auf 1280×720 und 1024×768). Die zentrierte Fortsetzung, etwa „& Anastacia“, sah wie ein eigener Song aus und kostete Höhe, der Songtitel wurde dafür unnötig verkleinert. Jetzt endet eine zu lange Zeile mit „…“ (der Titel steht vorn). Der Songtitel bleibt dadurch größer, z. B. 72 statt 61 Pixel auf 1280×720 mit drei Songs in „Sehr groß“ und Countdown.
+  - **Mausrad verstellt nichts mehr:** Rollen mit Mausrad oder Touchpad über einem Zahlenfeld oder einer Auswahlliste änderte den Wert, statt die Seite zu rollen. „Beamer & Timer“ liegt auf 1366×768 unter dem sichtbaren Bereich. Wer hinunterrollte, schaltete so unbemerkt den Song-Timer ein (5 s) oder änderte Anzahl und Größe von „Zuletzt“. Jetzt rollt immer die Seite, auf allen drei Seiten der App.
+  - **Eingetippte Anzahl gilt sofort:** Eine eingetippte Zahl im Feld „Zuletzt“ gilt, sobald der nächste Song gezogen wird, wie beim Song-Timer. Ein leeres Feld gilt nie als 0: Die Rücktaste mit Fokus im Feld löscht die Ziffer, „Zuletzt“ verschwand danach unbemerkt vom Beamer und aus dem Spielstand.
+  - **Import:** Ein Spielstand mit einer Liste oder einem Objekt als Größe von „Zuletzt“ wurde mit der englischen Meldung „unhashable type“ abgelehnt, jetzt mit der deutschen Fehlermeldung.
+- Release-Notizen: `scripts/build-release.sh` sucht zuerst den Abschnitt der genauen Version („## 2.6.1“), erst danach die Kurzform („## 2.6“). Ein Fehlerbehebungs-Release bekam sonst die Notizen der Hauptversion.
+- Tests: Das GUI-Szenario „Gewinnkontrolle“ schlug zufällig fehl (in der CI und in 3 von 25 Läufen beim Nachstellen). Der erste Song wurde zufällig gezogen. War es der letzte Song von Karte #1, war die Karte schon voll, bevor das Szenario „fehlt ein Song“ prüfte. Die App zeigte das richtig an, die Ausgangslage des Tests stimmte nicht. Jetzt ist die Ziehreihenfolge fest.
+
 ## 2.6 – November 2026
 
 Für die Weihnachtsfeier: Gewinnkontrolle für die Spielleitung, Songtitel auf dem Beamer abschaltbar, neue Jahrzehnt-Listen und die Korrekturen aus der Abendprüfung.

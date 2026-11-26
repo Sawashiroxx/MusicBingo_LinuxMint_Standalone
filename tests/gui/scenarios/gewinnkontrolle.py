@@ -18,7 +18,19 @@ def panel_buttons(w) -> list:
             if hasattr(child.get_child(), "card_number")]
 
 
+def quiet_opener(game):
+    """Ein Song, der nicht auf Karte #1 steht und zusammen mit deren Songs keine andere Karte füllt."""
+    on_first = {song.key for song in game.cards[0].songs}
+    for candidate in game.songs:
+        keys = on_first | {candidate.key}
+        if candidate.key not in on_first and not any(all(song.key in keys for song in card.songs)
+                                                     for card in game.cards[1:]):
+            return candidate
+    return None
+
+
 def scenario(w):
+    from musik_bingo.domain.caller import Caller
     from musik_bingo.presentation import dialogs
 
     dialogs.confirm = lambda *args, **kwargs: True
@@ -28,6 +40,21 @@ def scenario(w):
     w.count_spin.set_value(30)
     w._generate(None)
     game = w.service.game
+    first = game.cards[0]
+    opener = quiet_opener(game)
+    for _ in range(20):  # praktisch nie nötig: neue Karten, falls jeder mögliche erste Song eine Karte mitfüllt
+        if opener is not None:
+            break
+        w._generate(None)
+        game = w.service.game
+        first = game.cards[0]
+        opener = quiet_opener(game)
+    # Feste Ziehreihenfolge statt Zufall (Regression, CI 26.11.2026): Der erste Song wurde zufällig gezogen. War es
+    # ein Song von Karte #1, stimmte die Ausgangslage nicht („fehlt ein Song“ bzw. das Wiederziehen nach „Zurück“);
+    # füllte er zusammen mit den Songs von Karte #1 eine andere Karte, stand diese vorn oder im Gleichstand.
+    rest = [song for song in game.songs if song is not opener and song.key not in {x.key for x in first.songs}]
+    game.caller = Caller(game.songs, [opener, *first.songs, *rest], -1)
+    w._render_caller()
     w._select_page("game")
     w.win_buttons["volle_karte"].set_active(True)
     w.timer_spin.set_value(30)
@@ -36,8 +63,9 @@ def scenario(w):
     check("Vor dem ersten Song: Hinweis statt Karten", "Noch kein Song gezogen" in w.target_status_label.get_text()
           and panel_buttons(w) == [] and not w.target_hint.get_reveal_child())
 
-    first = game.cards[0]
     w._draw_next()  # Timer läuft
+    check("Erster Song steht nicht auf Karte #1 (feste Reihenfolge)",
+          game.caller.current is opener and opener.key not in {song.key for song in first.songs})
     for song in first.songs[:-1]:
         w.service.draw_song(song)
     w._render_caller()
@@ -86,9 +114,9 @@ def scenario(w):
     w._undo()
     check("„Zurück“: eingetragene Karte als nicht mehr am Ziel markiert",
           "nicht mehr am Ziel: #1" in w.target_status_label.get_text())
-    if not game.caller.is_drawn(first.songs[-1]):
-        w.service.draw_song(first.songs[-1])
-        w._render_caller()
+    check("„Zurück“ hat den letzten Song von Karte #1 zurückgenommen", not game.caller.is_drawn(first.songs[-1]))
+    w.service.draw_song(first.songs[-1])
+    w._render_caller()
 
     w._remove_winner(None, 0)
     check("Eintrag gelöscht: Prüfknopf ist wieder da", 1 in [b.card_number for b in panel_buttons(w)])

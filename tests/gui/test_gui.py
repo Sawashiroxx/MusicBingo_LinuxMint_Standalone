@@ -61,6 +61,10 @@ class GuiTests(unittest.TestCase):
         """„Titel auf dem Beamer aufdecken“ aus: kein Titel auf dem Beamer, auch nicht per T oder Auflösung."""
         self.scenario("beamer_aufdecken.py")
 
+    def test_beamer_recent_count_and_size(self):
+        """„Zuletzt“: Anzahl und Größe einstellbar, auch „Sehr groß“ mit Banner passt auf 1280×720."""
+        self.scenario("beamer_zuletzt.py")
+
     def test_shortcuts_with_real_keystrokes(self):
         """Regression: Leertaste/T wirkten mit echten Tastendrücken nicht (nur im Direktaufruf)."""
         require(self, "xdotool")

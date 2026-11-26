@@ -92,6 +92,34 @@ def scenario(w):
           w.service.timer_seconds == 15 and w.timer.phase == "läuft")
     w.timer_spin.set_value(0)  # Timer aus: die folgenden Schritte sollen nicht in eine Auflösung laufen
 
+    # „Zuletzt“ auf dem Beamer (Anzahl): gleiche Regeln wie beim Timer-Feld. Regression: Eine eingetippte Anzahl
+    # galt beim Ziehen nicht; die Rücktaste mit Fokus im Feld löschte die Ziffer – das leere Feld las GTK später
+    # als 0, „Zuletzt“ verschwand unbemerkt vom Beamer.
+    w.recent_count_spin.grab_focus()  # nach Klick auf +/-: markiert den alten Wert
+    before = drawn()
+    press(w, "space")
+    check("Leertaste zieht auch mit Fokus im Feld „Zuletzt“, der Wert bleibt",
+          drawn() == before + 1 and w.recent_count_spin.get_text() == "3" and w.service.beamer_recent_count == 3)
+    w.recent_count_spin.grab_focus()
+    type_text("5")
+    press(w, "space")
+    check("eingetippte Anzahl für „Zuletzt“ (5) gilt beim Ziehen mit der Leertaste",
+          w.service.beamer_recent_count == 5 and drawn() == before + 2)
+    w.recent_count_spin.grab_focus()
+    press(w, "BackSpace")  # gehört dem Feld: Ziffer weg, Feld leer
+    check("Rücktaste im Feld „Zuletzt“ löscht die Ziffer, nimmt keinen Song zurück",
+          w.recent_count_spin.get_text() == "" and drawn() == before + 2)
+    press(w, "space")
+    check("leeres Feld „Zuletzt“ beim Ziehen: Anzahl bleibt 5 (nicht 0)",
+          w.service.beamer_recent_count == 5 and w.recent_count_spin.get_text() == "5" and drawn() == before + 3)
+    w.recent_count_spin.grab_focus()
+    press(w, "BackSpace")
+    w.draw_button.grab_focus()  # Fokus verlässt das leere Feld
+    pump(0.3)
+    check("leeres Feld „Zuletzt“ beim Verlassen: Anzahl bleibt 5 (nicht 0)",
+          w.service.beamer_recent_count == 5 and w.recent_count_spin.get_value_as_int() == 5)
+    w.recent_count_spin.set_value(3)
+
     w.pool_search.grab_focus()
     before = drawn()
     press(w, "space")
