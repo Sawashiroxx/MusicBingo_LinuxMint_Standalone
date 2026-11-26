@@ -1,17 +1,34 @@
 # Änderungsprotokoll
 
+## 2.6.3 – November 2026
+
+Restlücken aus dem zweiten Prüfdurchgang von 2.6.2 (Claude Fable 5.2: alle neun Korrekturen halten, nichts blockierend).
+
+- **Seitenleiste auf der Seite Spielleitung:** Neben den Pfeiltasten wechselten auch Bild↑/↓, Pos1/Ende und die Pfeile auf dem Ziffernblock mitten im Spiel die Seite. Jetzt tun alle diese Tasten dort nichts, solange der Fokus in der Seitenleiste steht. In Zahlenfeldern und Listen wirken sie wie bisher, Tab ebenso.
+- **Gehaltenes Enter, auch bei langer Wiederhol-Verzögerung:** 2.6.2 sperrte Enter im Ergebnis für eine feste Zeit. Ist in den Systemeinstellungen eine lange Verzögerung eingestellt (z. B. 1,5 s), kam die erste Wiederholung erst danach und trug den Gewinner doch ungesehen ein. Jetzt merkt sich die App, ob Enter oder die Leertaste beim Öffnen des Ergebnisses noch gedrückt ist. Dann zählt die Taste erst nach dem Loslassen wieder.
+- **BINGO-Banner:** Es verschwindet nur noch, wenn genau der gefeierte Gewinner gelöscht wird. In 2.6.2 nahm auch das Löschen eines älteren Eintrags derselben Karte (z. B. „1 Reihe“, gefeiert wird „2 Reihen“) das Banner weg.
+- Anleitung: Hinweis zu Pfeil-, Bild- und Pos1-Tasten präzisiert.
+- Tests: Fünf von 14 gezielt eingebauten Fehlern blieben in 2.6.2 unentdeckt. Jetzt werden sie erkannt, durch neue Prüfungen zu diesen Fällen:
+  - Pfeiltaste im Zahlenfeld
+  - Gleichstand mit ausgeblendeter Karte beim selben Song
+  - Leertaste bei gehaltenem Enter
+  - 1,5 s Wiederhol-Verzögerung
+  - App-Ende mit offenem Beamer
+  - Song mit Link, sofort danach ein Song ohne Link
+  - älterer Eintrag derselben Karte
+
 ## 2.6.2 – November 2026
 
 - **Rundennummer auf dem Beamer abschaltbar:** neuer Schalter „Runde auf dem Beamer zeigen“ unter „Beamer & Timer“. Ist er aus, steht oben auf dem Beamer nur das Gewinnziel („Ziel: Volle Karte“) statt „Runde 10 · Ziel: Volle Karte“, etwa wenn beim Ausprobieren mit „Neu mischen“ schon hochgezählt wurde. Die Spielleitung sieht die Runde weiter, die Gewinnerliste zählt Runden wie bisher. Gespeichert im Spielstand, alte Stände zeigen die Runde wie bisher.
 - Der Schalter steht in einer eigenen Zeile: Neben „Titel auf dem Beamer aufdecken“ hätte er das Fenster mindestens 1466 px breit gemacht, breiter als ein 1366-px-Laptop (vom GUI-Test gefunden).
 - Behoben nach der Gesamtprüfung von 2.6.2 (Claude Fable 5.2; kein blockierender Befund):
   - **Gleichstand hinter einer Reservekarte:** Lag vor zwei gleichzeitig fertigen Karten eine früher fertige, als „Nicht vergeben“ ausgeblendete Karte, meldete die Gewinnkontrolle keinen Gleichstand. Dasselbe galt für die zweite Karte, nachdem die erste eingetragen war. Jetzt zählt der Gleichstand der ersten sichtbaren Karte.
-  - **Pfeiltasten auf der Seite Spielleitung:** Nach dem Start steht der Fokus in der Seitenleiste. Pfeil runter schaltete dann die Kürzel ab (die nächste Leertaste zog nichts), Pfeil hoch oder runter wechselte mitten im Spiel die Seite. Jetzt tun Pfeil-, Bild-, Pos1- und Ende-Tasten (auch auf dem Ziffernblock) dort nichts, solange der Fokus in der Seitenleiste steht. In Zahlenfeldern und Listen wirken sie wie bisher, Tab ebenso.
+  - **Pfeiltasten auf der Seite Spielleitung:** Nach dem Start steht der Fokus in der Seitenleiste. Pfeil runter schaltete dann die Kürzel ab (die nächste Leertaste zog nichts), Pfeil hoch oder runter wechselte mitten im Spiel die Seite. Jetzt tun Pfeiltasten dort nichts; Tab verhält sich wie bisher.
   - **Spotify ohne Songlink:** Die App öffnet dann die Spotify-Suche, in der man den Titel anklicken muss. Die Steuerung holte sich trotzdem nach vorn und verdeckte die Suche. Jetzt nur noch bei Songs mit Link.
   - **Bildschirmschoner:** Solange der Beamer offen ist, sperrt die App Bildschirmschoner, Bildschirmsperre und Ruhezustand. Mit Song-Timer oder „Player folgen“ gibt es sonst minutenlang keine Eingabe. Ob die Arbeitsumgebung das beachtet, entscheidet sie selbst.
   - **Sicherungen:** Sicherungen „vor neuen Karten“ (ein anderer, vielleicht schon gedruckter Kartensatz) werden getrennt gezählt und bis 50 aufbewahrt. Vorher verdrängten z. B. zehn Importe einen gedruckten Satz. Beim Importieren steht der Sicherungsordner links als Lesezeichen.
-  - **BINGO-Banner** verschwindet vom Beamer, wenn genau der gefeierte Gewinner gelöscht wird. Vorher blieb es bis zum nächsten Song stehen. Das Löschen eines älteren Eintrags derselben Karte lässt es stehen.
-  - **Gehaltenes Enter:** Wer Enter in „Bingo prüfen“ zu lange hielt, bestätigte per Tastenwiederholung sofort „Als Gewinner eintragen“, ohne die Karte gesehen zu haben. Jetzt merkt sich die App, ob Enter oder die Leertaste beim Öffnen des Ergebnisses noch gedrückt ist. Dann zählt die Taste erst nach dem Loslassen wieder, auch bei langer Wiederhol-Verzögerung in den Systemeinstellungen. Ein falscher Gewinner war auch vorher nicht möglich.
+  - **BINGO-Banner** verschwindet vom Beamer, wenn der Gewinner gelöscht wird. Vorher blieb es bis zum nächsten Song stehen.
+  - **Gehaltenes Enter:** Wer Enter in „Bingo prüfen“ zu lange hielt, bestätigte per Tastenwiederholung sofort „Als Gewinner eintragen“, ohne die Karte gesehen zu haben. Jetzt zählt Enter im Ergebnis erst, wenn die Taste losgelassen war. Ein falscher Gewinner war auch vorher nicht möglich.
   - **Export** an einen Ort ohne lokalen Pfad (z. B. Handy) brach still ab, der Dateidialog blieb offen. Jetzt erscheint „Export fehlgeschlagen“.
 - Tests: Beamer-Zeile mit und ohne Runde, Speichern/Laden inkl. alter und manipulierter Spielstände; neues GUI-Szenario auf 1366×768 mit zehn Proberunden, Zielwechsel, neuer Runde und Laden in beide Richtungen. Für die Prüfbefunde: Unit-Tests zu Gleichstand und Sicherungen, GUI-Szenario `befunde_262.py` und `tasten_262.py` mit echten Tastendrücken (Pfeiltasten, 1,2 s gehaltenes Enter). Alle schlagen mit dem Stand davor an.
 
