@@ -1,6 +1,8 @@
 # Änderungsprotokoll
 
-## Unveröffentlicht
+## 2.6 – November 2026
+
+Für die Weihnachtsfeier: Gewinnkontrolle für die Spielleitung, Songtitel auf dem Beamer abschaltbar, neue Jahrzehnt-Listen und die Korrekturen aus der Abendprüfung.
 
 - Neu: Schalter **„Titel auf dem Beamer aufdecken“** unter „Beamer & Timer“. Ist er aus, sehen die Gäste auf dem Beamer nie einen Songtitel: nicht per Taste T (der Knopf ist dann gesperrt), nicht in der Auflösung des Song-Timers und nicht unter „Zuletzt“. Die Spielleitung sieht den Titel weiter im Hauptfenster. Die Einstellung wird gespeichert, alte Spielstände decken wie bisher auf. Beim Umschalten wird nichts automatisch aufgedeckt. Ist der Schalter aus, zeigt der Beamer während der Timer-Auflösung „Nächster Song in … s“ statt „Auflösung“.
 - Neu: **Gewinnkontrolle** im Spielleitungs-Tab. Nach jedem Song prüft die App alle Karten gegen das aktuelle Gewinnziel und zeigt, welche Karten es erreicht haben. Ein Knopf je Karte öffnet direkt „Bingo prüfen“. Angezeigt werden auch ein Gleichstand, schon eingetragene Karten und wie vielen Karten nur noch ein Song fehlt. So fällt auch ein Gewinner auf, der ein Feld übersehen hat. Der Beamer zeigt davon nichts.

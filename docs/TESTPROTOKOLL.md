@@ -1,6 +1,6 @@
 # Prüfprotokoll
 
-Stand: 25.11.2026 (v2.5.1 + Abendprüfung + Gewinnkontrolle/Beamer-Aufdecken, geprüft von Claude Fable 5.2) · Umgebung: Ubuntu 24.04 (= Basis Linux Mint 22), Python 3.12, GTK 3.24, Xvfb
+Stand: 26.11.2026 (v2.6.0: Abendprüfung + Gewinnkontrolle/Beamer-Aufdecken, geprüft von Claude Fable 5.2) · Umgebung: Ubuntu 24.04 (= Basis Linux Mint 22), Python 3.12, GTK 3.24, Xvfb
 
 ## Automatisch (auch in der GitHub-Pipeline)
 
