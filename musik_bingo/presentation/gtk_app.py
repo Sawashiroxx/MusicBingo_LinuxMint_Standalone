@@ -722,7 +722,17 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             "Auflösung des Timers oder unter „Zuletzt“. Du siehst ihn weiter hier im Hauptfenster.")
         self.beamer_reveal_check.connect("toggled", self._beamer_reveal_changed)
         show_row.pack_start(self.beamer_reveal_check, False, False, 0)
+        self.beamer_round_check = Gtk.CheckButton(label="Runde auf dem Beamer zeigen")
+        self.beamer_round_check.set_active(True)
+        self.beamer_round_check.set_tooltip_text(
+            "Aus: Oben auf dem Beamer steht nur das Gewinnziel (z. B. „Ziel: Volle Karte“), ohne Rundennummer. "
+            "Du siehst die Runde weiter hier im Hauptfenster.")
+        self.beamer_round_check.connect("toggled", self._beamer_round_changed)
         show.pack_start(show_row, False, False, 0)
+        # Eigene Zeile: In der Zeile oben machte der Schalter das Fenster breiter als einen 1366-px-Laptop.
+        round_row = Gtk.Box(spacing=8)
+        round_row.pack_start(self.beamer_round_check, False, False, 0)
+        show.pack_start(round_row, False, False, 0)
         recent_row = Gtk.Box(spacing=10)
         self.recent_count_spin = Gtk.SpinButton.new_with_range(0, MAX_RECENT, 1)
         self.recent_count_spin.set_value(3)
@@ -875,6 +885,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             self.auto_play_check.set_active(service.auto_play)
             self.pause_after_check.set_active(service.pause_after_timer)
             self.beamer_reveal_check.set_active(service.beamer_reveal)
+            self.beamer_round_check.set_active(service.beamer_round)
             self.recent_count_spin.set_value(service.beamer_recent_count)
             self.recent_size_combo.set_active_id(service.beamer_recent_size)
             self._sync_reveal_button()
@@ -1846,6 +1857,15 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self._save()
         self._set_status("Titel werden auf dem Beamer aufgedeckt" if self.service.beamer_reveal
                          else "Titel bleiben auf dem Beamer verborgen")
+
+    def _beamer_round_changed(self, _button) -> None:
+        if self._loading_state:
+            return
+        self.service.beamer_round = self.beamer_round_check.get_active()
+        self._save()
+        self._update_beamer()
+        self._set_status("Runde wird auf dem Beamer gezeigt" if self.service.beamer_round
+                         else "Runde wird auf dem Beamer nicht gezeigt")
 
     def _beamer_recent_changed(self, _widget) -> None:
         if self._loading_state:
@@ -2899,6 +2919,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.service.auto_play = self.auto_play_check.get_active()
         self.service.pause_after_timer = self.pause_after_check.get_active()
         self.service.beamer_reveal = self.beamer_reveal_check.get_active()
+        self.service.beamer_round = self.beamer_round_check.get_active()
         self._commit_recent_count()
         self.service.beamer_recent_count = self.recent_count_spin.get_value_as_int()
         self.service.beamer_recent_size = self.recent_size_combo.get_active_id() or "normal"

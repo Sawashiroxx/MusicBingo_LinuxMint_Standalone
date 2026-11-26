@@ -5,6 +5,7 @@ Timer auflöst). Frühere Songs sind ohnehin bekannt und dürfen sichtbar sein.
 Ist „Titel auf dem Beamer aufdecken“ aus (``service.beamer_reveal``), bleibt jeder
 Titel verborgen – auch die früheren Songs unter „Zuletzt“. Wie viele frühere Songs
 „Zuletzt“ zeigt (0–5, Standard 3) und wie groß, stellt die Spielleitung ein.
+Ist „Runde auf dem Beamer zeigen“ aus (``service.beamer_round``), steht oben nur das Ziel.
 """
 from dataclasses import dataclass, field
 
@@ -14,7 +15,7 @@ from musik_bingo.domain.forecast import WIN_TARGET_LABELS
 @dataclass(frozen=True)
 class BeamerState:
     event_title: str
-    round_line: str          # „Runde 2 · Ziel: 2 Reihen“
+    round_line: str          # „Runde 2 · Ziel: 2 Reihen“ (ohne Runde: „Ziel: 2 Reihen“)
     song_line: str           # „Song 17“
     title: str               # Songtitel oder „♪ ♪ ♪“
     artist: str
@@ -38,7 +39,8 @@ def build_beamer_state(service, revealed: bool, timer_text: str = "", banner: st
     caller = service.game.caller
     drawn = caller.drawn
     current = caller.current
-    round_line = f"Runde {service.round_number} · Ziel: {WIN_TARGET_LABELS[service.win_target]}"
+    target_line = f"Ziel: {WIN_TARGET_LABELS[service.win_target]}"
+    round_line = f"Runde {service.round_number} · {target_line}" if service.beamer_round else target_line
     if current is None:
         song_line = "Gleich geht's los" if caller.pool else "Noch keine Runde"
         title, artist, shown = "", "", False

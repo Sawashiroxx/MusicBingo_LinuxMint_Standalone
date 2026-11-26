@@ -1,5 +1,11 @@
 # Änderungsprotokoll
 
+## 2.6.2 – November 2026
+
+- **Rundennummer auf dem Beamer abschaltbar:** neuer Schalter „Runde auf dem Beamer zeigen“ unter „Beamer & Timer“. Ist er aus, steht oben auf dem Beamer nur das Gewinnziel („Ziel: Volle Karte“) statt „Runde 10 · Ziel: Volle Karte“, etwa wenn beim Ausprobieren mit „Neu mischen“ schon hochgezählt wurde. Die Spielleitung sieht die Runde weiter, die Gewinnerliste zählt Runden wie bisher. Gespeichert im Spielstand, alte Stände zeigen die Runde wie bisher.
+- Der Schalter steht in einer eigenen Zeile: Neben „Titel auf dem Beamer aufdecken“ hätte er das Fenster mindestens 1466 px breit gemacht, breiter als ein 1366-px-Laptop (vom GUI-Test gefunden).
+- Tests: Beamer-Zeile mit und ohne Runde, Speichern/Laden inkl. alter und manipulierter Spielstände; neues GUI-Szenario auf 1366×768 mit zehn Proberunden, Zielwechsel, neuer Runde und Laden in beide Richtungen.
+
 ## 2.6.1 – November 2026
 
 „Zuletzt“ auf dem Beamer ist einstellbar, für weit entfernte Plätze. Dazu die Korrekturen aus der Prüfung dieser Einstellungen.

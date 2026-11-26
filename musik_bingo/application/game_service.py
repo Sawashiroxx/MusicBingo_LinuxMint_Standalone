@@ -93,6 +93,9 @@ class GameService:
         # Titel auf dem Beamer aufdecken (Taste T / Auflösung des Timers). Aus: Die Gäste sehen nie einen
         # Songtitel – auch nicht in „Zuletzt“. Die Spielleitung sieht ihn weiter im Hauptfenster.
         self.beamer_reveal = True
+        # Rundennummer auf dem Beamer zeigen („Runde 2 · Ziel: …“). Aus: Die Gäste sehen nur das Ziel –
+        # z. B. wenn beim Ausprobieren schon hochgezählt wurde. Die Spielleitung sieht die Runde weiter.
+        self.beamer_round = True
         # „Zuletzt“ auf dem Beamer: Anzahl früherer Songs (0 = aus) und Schriftgröße – für weit entfernte Plätze
         self.beamer_recent_count = 3
         self.beamer_recent_size = "normal"
@@ -357,6 +360,7 @@ class GameService:
                 "reveal_seconds": self.reveal_seconds,
                 "pause_after_timer": self.pause_after_timer,
                 "beamer_reveal": self.beamer_reveal,
+                "beamer_round": self.beamer_round,
                 "beamer_recent_count": self.beamer_recent_count,
                 "beamer_recent_size": self.beamer_recent_size,
             },
@@ -552,6 +556,11 @@ class GameService:
         if not isinstance(beamer_reveal, bool):
             raise ValueError("Ungültige Einstellung „Titel auf dem Beamer aufdecken“ im Spielstand.")
         service.beamer_reveal = beamer_reveal
+        # Fehlt in Ständen bis 2.6.1: dort stand die Runde immer auf dem Beamer
+        beamer_round = settings.get("beamer_round", True)
+        if not isinstance(beamer_round, bool):
+            raise ValueError("Ungültige Einstellung „Runde auf dem Beamer zeigen“ im Spielstand.")
+        service.beamer_round = beamer_round
         recent_count = settings.get("beamer_recent_count", 3)
         if (not isinstance(recent_count, int) or isinstance(recent_count, bool)
                 or not 0 <= recent_count <= MAX_RECENT):

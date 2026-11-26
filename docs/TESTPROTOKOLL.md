@@ -1,15 +1,15 @@
 # Prüfprotokoll
 
-Stand: 26.11.2026 (v2.6.1: „Zuletzt“ auf dem Beamer einstellbar, geprüft von Claude Fable 5.2; v2.6.0: Abendprüfung + Gewinnkontrolle/Beamer-Aufdecken) · Umgebung: Ubuntu 24.04 (= Basis Linux Mint 22), Python 3.12, GTK 3.24, Xvfb
+Stand: 26.11.2026 (v2.6.2: Rundennummer auf dem Beamer abschaltbar; v2.6.1: „Zuletzt“ auf dem Beamer einstellbar, geprüft von Claude Fable 5.2; v2.6.0: Abendprüfung + Gewinnkontrolle/Beamer-Aufdecken) · Umgebung: Ubuntu 24.04 (= Basis Linux Mint 22), Python 3.12, GTK 3.24, Xvfb
 
 ## Automatisch (auch in der GitHub-Pipeline)
 
 | Suite | Tests | Ergebnis |
 |---|---|---|
-| Unit (Gewinngarantie, Prognose, Abend-Logik, Timer, Songliste-Fuzzing mit 40 000 Zufallsfällen, Kartensuche, Spotify-Links, Spotify-Prüfliste, CSV ohne Raten, ungültige Zeichen im Spielstand, Jahrzehnt-Kataloge, Startziel der Runde, Tabellen-Text, Gewinnkontrolle, Beamer ohne Aufdecken, „Zuletzt“-Anzahl/-Größe inkl. manipulierter Werte) | 187 | ✅ |
+| Unit (Gewinngarantie, Prognose, Abend-Logik, Timer, Songliste-Fuzzing mit 40 000 Zufallsfällen, Kartensuche, Spotify-Links, Spotify-Prüfliste, CSV ohne Raten, ungültige Zeichen im Spielstand, Jahrzehnt-Kataloge, Startziel der Runde, Tabellen-Text, Gewinnkontrolle, Beamer ohne Aufdecken, „Zuletzt“-Anzahl/-Größe inkl. manipulierter Werte) | 188 | ✅ |
 | Integration (Spotify-/YouTube-Simulation inkl. hängendem, verzögertem und umverknüpftem Spotify, Abspiel-Kontrolle, GStreamer-Netzwerksperre, Druck, Installer, Update-Skript, Sicherungen, Release-Bau inkl. Release-Notizen je Version) | 82 | ✅ |
 | Sicherheit (u. a. Windows-/UTF-16-Dateien auch als *.txt, präparierte Umleitungsdateien ohne Netz) | 21 | ✅ |
-| GUI/E2E unter Xvfb (Gesamtablauf, Abend-Funktionen, Spotify-Abspielen in 12 Varianten, Spotify-Links, YouTube im Browser, echte Tastendrücke, Prüfen ohne Kartennummer, Grenzfälle, Kontrast, Fensterklasse, Mindestgröße 1366×768, Screenshots; „wie am Abend“ auf 1366×768 mit echten Dialogen, gehaltenen Tasten, Mausklicks und Speicherfehler; Abend nur mit „Volle Karte“ über mehrere Runden; Beamer auf 1280×720 und 1024×768; Gewinnkontrolle mit Prüfknopf, Gleichstand und Zielwechsel; Beamer ohne Aufdecken; „Zuletzt“ einstellbar auf 1280×720/1024×768/1920×1080 mit einer Zeile je Song; echtes Mausrad über Zahlenfeldern; Gewinnkontrolle mit fester Ziehreihenfolge) | 19 | ✅ |
+| GUI/E2E unter Xvfb (Gesamtablauf, Abend-Funktionen, Spotify-Abspielen in 12 Varianten, Spotify-Links, YouTube im Browser, echte Tastendrücke, Prüfen ohne Kartennummer, Grenzfälle, Kontrast, Fensterklasse, Mindestgröße 1366×768, Screenshots; „wie am Abend“ auf 1366×768 mit echten Dialogen, gehaltenen Tasten, Mausklicks und Speicherfehler; Abend nur mit „Volle Karte“ über mehrere Runden; Beamer auf 1280×720 und 1024×768; Gewinnkontrolle mit Prüfknopf, Gleichstand und Zielwechsel; Beamer ohne Aufdecken; „Zuletzt“ einstellbar auf 1280×720/1024×768/1920×1080 mit einer Zeile je Song; echtes Mausrad über Zahlenfeldern; Gewinnkontrolle mit fester Ziehreihenfolge; Runde auf dem Beamer abschaltbar auf 1366×768) | 20 | ✅ |
 | ruff (Fehler, Bugs, bandit-Sicherheitsregeln), shellcheck | – | ✅ |
 
 In der CI ist ein fehlendes GUI-Werkzeug (xvfb-run, xdotool, xprop …) ein Fehler, kein Überspringen.
@@ -107,6 +107,18 @@ Geprüft wurde der geplante Abend: 3×3-Karten, nur „Volle Karte“, mehrere R
 
 Offen und für den Abend wichtig: Tab oder Pfeiltasten schalten weiterhin die Tastatur-Navigation ein (danach bedient die Leertaste das markierte Element, bis geklickt wird).
 Nicht prüfbar: Verhalten unter Cinnamon (Maximieren, Vollbild auf dem zweiten Bildschirm), echtes Spotify, echter Beamer.
+
+## v2.6.2: Runde auf dem Beamer abschaltbar (Prüfer: Claude Fable 5.2)
+
+Anlass: Nach Proberunden mit „Neu mischen“ stand auf dem Beamer „Runde 10“; die Karten waren schon gedruckt.
+
+Geprüft: Laden, Speichern, Import (auch alte und manipulierte Stände), Start mit und ohne Spielstand, neue Runde, Zielwechsel, BINGO-Banner (kein Beamer-Text enthält dann „Runde“), Tastatur und Tab-Reihenfolge, Mausrad, Einpassen auf 1280×720, Update von 2.6.1 mit `aktualisieren.sh` (Spielstand byte-gleich, Karten identisch) und Rückweg auf 2.6.1.
+
+Selbst gefunden (GUI-Test): In der Zeile neben „Titel auf dem Beamer aufdecken“ machte der Schalter das Fenster mindestens 1466 px breit. Jetzt eigene Zeile, Mindestbreite 1272 px.
+
+Mutationsprüfung: 8 von 8 eingebauten Fehlern erkannt. Jeder neue Test schlägt mit dem alten Code fehl.
+
+Bekannt, nicht durch diese Änderung: `tasten.py` auf 1366×768 statt 1600×1000 scheitert an einer Prüfung (Feld „Auflösung“ liegt unter dem Bildschirmrand, der echte Klick trifft daneben) – mit 2.6.1 genauso. In der Pipeline läuft das Szenario auf 1600×1000.
 
 ## v2.6.1: Prüfung „Zuletzt“ auf dem Beamer (Prüfer: Claude Fable 5.2)
 

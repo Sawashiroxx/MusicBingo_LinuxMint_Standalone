@@ -65,6 +65,10 @@ class GuiTests(unittest.TestCase):
         """„Zuletzt“: Anzahl und Größe einstellbar, auch „Sehr groß“ mit Banner passt auf 1280×720."""
         self.scenario("beamer_zuletzt.py")
 
+    def test_beamer_round_can_be_hidden(self):
+        """„Runde auf dem Beamer zeigen“ aus: nur „Ziel: …“, auch nach neuen Runden; Fenster passt auf 1366×768."""
+        self.scenario("beamer_runde.py", screen="1366x768")
+
     def test_shortcuts_with_real_keystrokes(self):
         """Regression: Leertaste/T wirkten mit echten Tastendrücken nicht (nur im Direktaufruf)."""
         require(self, "xdotool")
