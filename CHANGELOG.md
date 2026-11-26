@@ -1,5 +1,9 @@
 # Änderungsprotokoll
 
+## Unveröffentlicht
+
+- **„Zuletzt“ auf dem Beamer einstellbar**, für weit entfernte Plätze: unter „Beamer & Timer“ die Anzahl früherer Songs (0–5, neuer Standard **3** statt 5) und die Größe (Normal, Groß, Sehr groß). Jeder Song steht jetzt in einer eigenen Zeile statt in einer umbrechenden Kette mit „·“. Passt nicht alles auf den Beamer, verkleinert die App wie bisher den ganzen Inhalt gleichmäßig. Ohne „Titel auf dem Beamer aufdecken“ ruhen die Einstellungen. Gespeichert im Spielstand, alte Stände nutzen 3 und Normal.
+
 ## 2.6 – November 2026
 
 Für die Weihnachtsfeier: Gewinnkontrolle für die Spielleitung, Songtitel auf dem Beamer abschaltbar, neue Jahrzehnt-Listen und die Korrekturen aus der Abendprüfung.

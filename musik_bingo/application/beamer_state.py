@@ -3,9 +3,10 @@
 Der Songtitel wird erst gezeigt, wenn die Spielleitung ihn aufdeckt (oder der
 Timer auflöst). Frühere Songs sind ohnehin bekannt und dürfen sichtbar sein.
 Ist „Titel auf dem Beamer aufdecken“ aus (``service.beamer_reveal``), bleibt jeder
-Titel verborgen – auch die früheren Songs unter „Zuletzt“.
+Titel verborgen – auch die früheren Songs unter „Zuletzt“. Wie viele frühere Songs
+„Zuletzt“ zeigt (0–5, Standard 3) und wie groß, stellt die Spielleitung ein.
 """
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from musik_bingo.domain.forecast import WIN_TARGET_LABELS
 
@@ -21,6 +22,13 @@ class BeamerState:
     recent: tuple[str, ...]  # zuletzt gespielte (bereits bekannte) Songs
     timer: str               # Countdown-Text oder ""
     banner: str              # z. B. „BINGO! Karte #12 · Oma Erna“ oder ""
+    recent_scale: float = field(default=1.0)  # Schriftgröße von „Zuletzt“ (1.0 = normal)
+
+
+# „Zuletzt“ auf dem Beamer: höchstens so viele Songs, Größenstufen für weit entfernte Plätze
+MAX_RECENT = 5
+RECENT_SIZES = {"normal": 1.0, "gross": 1.5, "sehr_gross": 2.0}
+RECENT_SIZE_LABELS = {"normal": "Normal", "gross": "Groß", "sehr_gross": "Sehr groß"}
 
 
 HIDDEN = "♪ ♪ ♪"
@@ -40,5 +48,7 @@ def build_beamer_state(service, revealed: bool, timer_text: str = "", banner: st
         title, artist = (current.title, current.artist) if shown else (HIDDEN, "")
     # „Zuletzt“ = vorherige Songs; der aktuelle steht (aufgedeckt) groß in der Mitte oder bleibt verborgen.
     previous = drawn[:-1] if current is not None else drawn
-    recent = tuple(song.display_name for song in reversed(previous[-5:])) if service.beamer_reveal else ()
-    return BeamerState(service.event_title, round_line, song_line, title, artist, shown, recent, timer_text, banner)
+    count = service.beamer_recent_count if service.beamer_reveal else 0
+    recent = tuple(song.display_name for song in reversed(previous[-count:])) if count else ()
+    return BeamerState(service.event_title, round_line, song_line, title, artist, shown, recent, timer_text, banner,
+                       RECENT_SIZES[service.beamer_recent_size])

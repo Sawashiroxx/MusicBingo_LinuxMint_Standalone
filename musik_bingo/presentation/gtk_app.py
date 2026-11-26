@@ -12,7 +12,7 @@ gi.require_version("Gtk", "3.0")
 gi.require_version("Gdk", "3.0")
 from gi.repository import Gdk, Gio, GLib, Gtk, Pango
 
-from musik_bingo.application.beamer_state import build_beamer_state
+from musik_bingo.application.beamer_state import MAX_RECENT, RECENT_SIZE_LABELS, build_beamer_state
 from musik_bingo.application.game_service import GameService
 from musik_bingo.application.song_timer import SongTimer
 from musik_bingo.application.spotify_check import (
@@ -703,6 +703,26 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.beamer_reveal_check.connect("toggled", self._beamer_reveal_changed)
         show_row.pack_start(self.beamer_reveal_check, False, False, 0)
         show.pack_start(show_row, False, False, 0)
+        recent_row = Gtk.Box(spacing=10)
+        self.recent_count_spin = Gtk.SpinButton.new_with_range(0, MAX_RECENT, 1)
+        self.recent_count_spin.set_value(3)
+        self.recent_count_spin.set_tooltip_text(
+            "Wie viele frühere Songs der Beamer unter „Zuletzt“ nennt. 0 = keine. Weniger ist aus der Ferne "
+            "besser lesbar.")
+        self.recent_count_spin.connect("value-changed", self._beamer_recent_changed)
+        self.recent_size_combo = Gtk.ComboBoxText()
+        for key, text in RECENT_SIZE_LABELS.items():
+            self.recent_size_combo.append(key, text)
+        self.recent_size_combo.set_active_id("normal")
+        self.recent_size_combo.set_tooltip_text(
+            "Schriftgröße von „Zuletzt“ auf dem Beamer – größer für weit entfernte Plätze. Passt nicht alles "
+            "auf den Beamer, verkleinert die App den ganzen Inhalt gleichmäßig.")
+        self.recent_size_combo.connect("changed", self._beamer_recent_changed)
+        recent_row.pack_start(label("„Zuletzt“ auf dem Beamer", "small"), False, False, 0)
+        recent_row.pack_start(self.recent_count_spin, False, False, 0)
+        recent_row.pack_start(label("Größe", "small"), False, False, 0)
+        recent_row.pack_start(self.recent_size_combo, False, False, 0)
+        show.pack_start(recent_row, False, False, 0)
         timer_row = Gtk.Box(spacing=10)
         self.timer_spin = Gtk.SpinButton.new_with_range(0, 600, 5)
         self.timer_spin.set_tooltip_text("Sekunden pro Song, danach automatisch weiter. 0 = Timer aus.")
@@ -833,6 +853,8 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             self.auto_play_check.set_active(service.auto_play)
             self.pause_after_check.set_active(service.pause_after_timer)
             self.beamer_reveal_check.set_active(service.beamer_reveal)
+            self.recent_count_spin.set_value(service.beamer_recent_count)
+            self.recent_size_combo.set_active_id(service.beamer_recent_size)
             self._sync_reveal_button()
             self.target_buttons[service.playback_target].set_active(True)
             self.win_buttons[service.win_target].set_active(True)
@@ -1802,10 +1824,21 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self._set_status("Titel werden auf dem Beamer aufgedeckt" if self.service.beamer_reveal
                          else "Titel bleiben auf dem Beamer verborgen")
 
+    def _beamer_recent_changed(self, _widget) -> None:
+        if self._loading_state:
+            return
+        self.service.beamer_recent_count = self.recent_count_spin.get_value_as_int()
+        self.service.beamer_recent_size = self.recent_size_combo.get_active_id() or "normal"
+        self._save()
+        self._update_beamer()
+
     def _sync_reveal_button(self) -> None:
         """„Titel aufdecken (T)“ ist nur bedienbar, wenn der Beamer Titel überhaupt zeigen darf."""
         allowed = self.beamer_reveal_check.get_active()
         self.reveal_button.set_sensitive(allowed)
+        # Ohne Aufdecken zeigt der Beamer kein „Zuletzt“ – die Einstellungen dazu ruhen
+        for widget in (self.recent_count_spin, self.recent_size_combo):
+            widget.set_sensitive(allowed)
         self.reveal_button.set_tooltip_text(
             "" if allowed else "Aufdecken ist aus („Titel auf dem Beamer aufdecken“).")
 
@@ -2828,6 +2861,9 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.service.auto_play = self.auto_play_check.get_active()
         self.service.pause_after_timer = self.pause_after_check.get_active()
         self.service.beamer_reveal = self.beamer_reveal_check.get_active()
+        self.recent_count_spin.update()
+        self.service.beamer_recent_count = self.recent_count_spin.get_value_as_int()
+        self.service.beamer_recent_size = self.recent_size_combo.get_active_id() or "normal"
         if hasattr(self, "title_entry"):
             self.service.set_event_title(self.title_entry.get_text())
         self._save()

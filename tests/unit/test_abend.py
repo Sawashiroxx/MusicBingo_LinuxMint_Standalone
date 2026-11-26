@@ -239,14 +239,19 @@ class PersistenceTests(unittest.TestCase):
         self.assertEqual((restored.timer_seconds, restored.reveal_seconds), (45, 5))
         self.assertEqual(restored.winners, svc.winners)
         svc.beamer_reveal = False
-        self.assertFalse(GameService.from_dict(svc.to_dict()).beamer_reveal)
+        svc.beamer_recent_count, svc.beamer_recent_size = 1, "gross"
+        restored = GameService.from_dict(svc.to_dict())
+        self.assertEqual((restored.beamer_reveal, restored.beamer_recent_count, restored.beamer_recent_size),
+                         (False, 1, "gross"))
         data = svc.to_dict()
-        for key in ("event_title", "round_number", "timer_seconds", "reveal_seconds", "beamer_reveal"):
+        for key in ("event_title", "round_number", "timer_seconds", "reveal_seconds", "beamer_reveal",
+                    "beamer_recent_count", "beamer_recent_size"):
             del data["settings"][key]
         del data["winners"]
         old = GameService.from_dict(data)
         self.assertEqual((old.event_title, old.round_number, old.timer_seconds, old.winners), ("Musik Bingo", 1, 0, []))
         self.assertTrue(old.beamer_reveal)  # alte Spielstände: Aufdecken wie bisher an
+        self.assertEqual((old.beamer_recent_count, old.beamer_recent_size), (3, "normal"))
 
     def test_duplicate_winners_in_file_are_rejected(self):
         svc = service()
@@ -263,6 +268,9 @@ class PersistenceTests(unittest.TestCase):
             ("settings", "round_number", 0), ("settings", "round_number", True), ("settings", "timer_seconds", 9999),
             ("settings", "reveal_seconds", -1), ("settings", "event_title", 5),
             ("settings", "beamer_reveal", "nein"), ("settings", "beamer_reveal", 0),
+            ("settings", "beamer_recent_count", 6), ("settings", "beamer_recent_count", -1),
+            ("settings", "beamer_recent_count", True), ("settings", "beamer_recent_count", "3"),
+            ("settings", "beamer_recent_size", "riesig"), ("settings", "beamer_recent_size", 2),
             ("winners", None, [{"round": 1, "target": "reihe", "card": 99, "name": "", "song_count": 1}]),
             ("winners", None, [{"round": 1, "target": "jackpot", "card": 1, "name": "", "song_count": 1}]),
             ("winners", None, [{"round": "1", "target": "reihe", "card": 1, "name": "", "song_count": 1}]),
@@ -342,11 +350,25 @@ class BeamerStateTests(unittest.TestCase):
         svc.beamer_reveal = True
         self.assertEqual(build_beamer_state(svc, revealed=True).recent, (first.display_name,))
 
+    def test_recent_size_reaches_beamer(self):
+        svc = service()
+        svc.game.caller.draw_next()
+        svc.game.caller.draw_next()
+        self.assertEqual(build_beamer_state(svc, revealed=False).recent_scale, 1.0)
+        svc.beamer_recent_size = "sehr_gross"
+        self.assertEqual(build_beamer_state(svc, revealed=False).recent_scale, 2.0)
+
     def test_recent_list_is_limited(self):
         svc = service()
         for _ in range(12):
             svc.game.caller.draw_next()
-        self.assertEqual(len(build_beamer_state(svc, revealed=True).recent), 5)
+        drawn = svc.game.caller.drawn
+        # Standard: die letzten 3 vorherigen Songs, neuester zuerst, ohne den aktuellen
+        self.assertEqual(build_beamer_state(svc, revealed=True).recent,
+                         tuple(song.display_name for song in reversed(drawn[-4:-1])))
+        for count in range(0, 6):
+            svc.beamer_recent_count = count
+            self.assertEqual(len(build_beamer_state(svc, revealed=True).recent), count)
         self.assertEqual(build_beamer_state(GameService(), revealed=False).song_line, "Noch keine Runde")
 
 
