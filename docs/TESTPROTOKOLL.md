@@ -1,15 +1,15 @@
 # Prüfprotokoll
 
-Stand: 26.11.2026 (v2.6.0: Abendprüfung + Gewinnkontrolle/Beamer-Aufdecken, geprüft von Claude Fable 5.2) · Umgebung: Ubuntu 24.04 (= Basis Linux Mint 22), Python 3.12, GTK 3.24, Xvfb
+Stand: 26.11.2026 (v2.6.1: „Zuletzt“ auf dem Beamer einstellbar, geprüft von Claude Fable 5.2; v2.6.0: Abendprüfung + Gewinnkontrolle/Beamer-Aufdecken) · Umgebung: Ubuntu 24.04 (= Basis Linux Mint 22), Python 3.12, GTK 3.24, Xvfb
 
 ## Automatisch (auch in der GitHub-Pipeline)
 
 | Suite | Tests | Ergebnis |
 |---|---|---|
-| Unit (Gewinngarantie, Prognose, Abend-Logik, Timer, Songliste-Fuzzing mit 40 000 Zufallsfällen, Kartensuche, Spotify-Links, Spotify-Prüfliste, CSV ohne Raten, ungültige Zeichen im Spielstand, Jahrzehnt-Kataloge, Startziel der Runde, Tabellen-Text, Gewinnkontrolle, Beamer ohne Aufdecken, „Zuletzt“-Anzahl/-Größe) | 187 | ✅ |
-| Integration (Spotify-/YouTube-Simulation inkl. hängendem, verzögertem und umverknüpftem Spotify, Abspiel-Kontrolle, GStreamer-Netzwerksperre, Druck, Installer, Update-Skript, Sicherungen, Release-Bau) | 79 | ✅ |
+| Unit (Gewinngarantie, Prognose, Abend-Logik, Timer, Songliste-Fuzzing mit 40 000 Zufallsfällen, Kartensuche, Spotify-Links, Spotify-Prüfliste, CSV ohne Raten, ungültige Zeichen im Spielstand, Jahrzehnt-Kataloge, Startziel der Runde, Tabellen-Text, Gewinnkontrolle, Beamer ohne Aufdecken, „Zuletzt“-Anzahl/-Größe inkl. manipulierter Werte) | 187 | ✅ |
+| Integration (Spotify-/YouTube-Simulation inkl. hängendem, verzögertem und umverknüpftem Spotify, Abspiel-Kontrolle, GStreamer-Netzwerksperre, Druck, Installer, Update-Skript, Sicherungen, Release-Bau inkl. Release-Notizen je Version) | 82 | ✅ |
 | Sicherheit (u. a. Windows-/UTF-16-Dateien auch als *.txt, präparierte Umleitungsdateien ohne Netz) | 21 | ✅ |
-| GUI/E2E unter Xvfb (Gesamtablauf, Abend-Funktionen, Spotify-Abspielen in 12 Varianten, Spotify-Links, YouTube im Browser, echte Tastendrücke, Prüfen ohne Kartennummer, Grenzfälle, Kontrast, Fensterklasse, Mindestgröße 1366×768, Screenshots; „wie am Abend“ auf 1366×768 mit echten Dialogen, gehaltenen Tasten, Mausklicks und Speicherfehler; Abend nur mit „Volle Karte“ über mehrere Runden; Beamer auf 1280×720 und 1024×768; Gewinnkontrolle mit Prüfknopf, Gleichstand und Zielwechsel; Beamer ohne Aufdecken; „Zuletzt“ einstellbar auf 1280×720/1920×1080) | 19 | ✅ |
+| GUI/E2E unter Xvfb (Gesamtablauf, Abend-Funktionen, Spotify-Abspielen in 12 Varianten, Spotify-Links, YouTube im Browser, echte Tastendrücke, Prüfen ohne Kartennummer, Grenzfälle, Kontrast, Fensterklasse, Mindestgröße 1366×768, Screenshots; „wie am Abend“ auf 1366×768 mit echten Dialogen, gehaltenen Tasten, Mausklicks und Speicherfehler; Abend nur mit „Volle Karte“ über mehrere Runden; Beamer auf 1280×720 und 1024×768; Gewinnkontrolle mit Prüfknopf, Gleichstand und Zielwechsel; Beamer ohne Aufdecken; „Zuletzt“ einstellbar auf 1280×720/1024×768/1920×1080 mit einer Zeile je Song; echtes Mausrad über Zahlenfeldern; Gewinnkontrolle mit fester Ziehreihenfolge) | 19 | ✅ |
 | ruff (Fehler, Bugs, bandit-Sicherheitsregeln), shellcheck | – | ✅ |
 
 In der CI ist ein fehlendes GUI-Werkzeug (xvfb-run, xdotool, xprop …) ein Fehler, kein Überspringen.
@@ -108,6 +108,27 @@ Geprüft wurde der geplante Abend: 3×3-Karten, nur „Volle Karte“, mehrere R
 Offen und für den Abend wichtig: Tab oder Pfeiltasten schalten weiterhin die Tastatur-Navigation ein (danach bedient die Leertaste das markierte Element, bis geklickt wird).
 Nicht prüfbar: Verhalten unter Cinnamon (Maximieren, Vollbild auf dem zweiten Bildschirm), echtes Spotify, echter Beamer.
 
+## v2.6.1: Prüfung „Zuletzt“ auf dem Beamer (Prüfer: Claude Fable 5.2)
+
+Geprüft: Anzahl 0–5 und Reihenfolge (aktueller Song nie dabei, auch nach „Zurück“), Aufdecken an/aus, Einpassen auf 1280×720, 1024×768 und 1920×1080 mit langen zweizeiligen Titeln, Countdown und BINGO-Banner, Speichern/Laden/Import mit manipulierten Werten, Sperren/Entsperren, Lage des Panels auf 1366×768, Tastatur und Mausrad mit echten Eingaben.
+
+Gefunden und behoben:
+
+- lange Einträge unter „Zuletzt“ brachen um; die Fortsetzungszeile sah wie ein eigener Song aus (bis 9 Zeilen statt 6 auf 1024×768) und verkleinerte den Songtitel unnötig
+- Mausrad über Zahlenfeld oder Auswahlliste änderte den Wert, statt die Seite zu rollen (Song-Timer 0 → 5 s, „Zuletzt“ 3 → 2, Normal → Groß) – auch bei den schon vorhandenen Timer-Feldern
+- eingetippte Anzahl galt beim Ziehen nicht; leeres Feld (Rücktaste im Feld) wurde zu 0
+- Import: Liste/Objekt als Größe → englische Meldung „unhashable type“
+- Release-Skript hätte für 2.6.1 die Notizen von 2.6.0 geliefert
+- GUI-Szenario „Gewinnkontrolle“ schlug zufällig fehl (Fehler im Test: zufälliger erster Song; 3 von 25 Läufen), jetzt feste Reihenfolge, 20 Läufe in Folge grün
+
+Ergebnis des Einpassens nach der Korrektur: alles im Bild, nichts überlappt, Songtitel nie gekürzt. Kleinste Stufe im GUI-Szenario 66 %, in der Messung mit zweizeiligem Titel 60 % (5 Songs „Sehr groß“, Banner, Countdown). Auf 1280×720 ist ein zweizeiliger Songtitel mit 3 Songs in „Sehr groß“ und Countdown 72 px hoch (mit Banner 61 px), auf 1920×1080 92 px. Im Verhältnis zur Bildhöhe ist das etwa gleich groß oder größer – ein Beamer zeigt beide Auflösungen auf derselben Leinwand.
+
+Die Zeile „Zuletzt“ schiebt im Panel „Beamer & Timer“ nur die Timer-Zeile und die Abspiel-Knöpfe 58 px tiefer. Ziehen-Knopf, Warnkasten und Gewinn-Hinweis liegen darüber und bleiben an ihrer Stelle; das Panel lag auf 1366×768 schon vorher unter dem sichtbaren Bereich.
+
+Mutationsprüfung (absichtlich eingebaute Fehler, in einer Kopie): vor den Ergänzungen 15 von 19 erkannt, danach 18 von 19; der letzte ist gleichwertig (Umbruch zusätzlich zur Ellipse ändert die Anzeige nicht). Jeder neue Test schlägt mit dem alten Code fehl (geprüft).
+
+Nicht geprüft: echter Beamer und Lesbarkeit aus echter Entfernung, Touchpad mit feinem Rollen (geprüft wurde das Mausrad per XTEST), Cinnamon. Das Beamer-Bild in der Anleitung zeigt noch die alte „Zuletzt“-Zeile.
+
 ## Vor der Feier einmal von Hand (echter Rechner)
 
 1. `bash scripts/install-desktop.sh`, App über das Menü starten
@@ -115,6 +136,6 @@ Nicht prüfbar: Verhalten unter Cinnamon (Maximieren, Vollbild auf dem zweiten B
 3. In Spotify „Autoplay“ ausschalten, dann in der App *Spotify testen* – alle Punkte ✓, Playlist abspielen → *Player folgen* → Song wird gezogen; *Weiter* springt im Player zum nächsten Titel
 4. Einen Song ohne Folgen-Modus mit *Abspielen* in Spotify starten
 5. App schließen und neu öffnen → Stand ist erhalten
-6. Beamer anschließen, *Beamer öffnen* → Fenster erscheint im Vollbild auf dem Beamer, Titel verdeckt, T deckt auf
+6. Beamer anschließen, *Beamer öffnen* → Fenster erscheint im Vollbild auf dem Beamer, Titel verdeckt, T deckt auf; von den hintersten Plätzen aus prüfen, ob „Zuletzt“ lesbar ist – sonst unter „Beamer & Timer“ Größe erhöhen oder Anzahl senken
 
 Nicht automatisch prüfbar: echte Spotify-/Browser-Anbindung (simuliert getestet), echter Drucker, Tonausgabe.

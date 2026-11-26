@@ -1,6 +1,8 @@
 # Änderungsprotokoll
 
-## Unveröffentlicht
+## 2.6.1 – November 2026
+
+„Zuletzt“ auf dem Beamer ist einstellbar, für weit entfernte Plätze. Dazu die Korrekturen aus der Prüfung dieser Einstellungen.
 
 - **„Zuletzt“ auf dem Beamer einstellbar**, für weit entfernte Plätze: unter „Beamer & Timer“ die Anzahl früherer Songs (0–5, neuer Standard **3** statt 5) und die Größe (Normal, Groß, Sehr groß). Jeder Song steht jetzt in einer eigenen Zeile statt in einer umbrechenden Kette mit „·“. Passt nicht alles auf den Beamer, verkleinert die App wie bisher den ganzen Inhalt gleichmäßig. Ohne „Titel auf dem Beamer aufdecken“ ruhen die Einstellungen. Gespeichert im Spielstand, alte Stände nutzen 3 und Normal.
 - Behoben nach der Prüfung der neuen Einstellungen (Claude Fable 5.2):
