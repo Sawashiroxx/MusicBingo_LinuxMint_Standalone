@@ -137,6 +137,13 @@ Behoben, jeweils mit Test, der mit dem Stand davor anschlägt:
 - Export ohne lokalen Pfad
 - Sicherungsordner im Import-Dialog
 
+2. Durchgang (Prüfung der Korrekturen): alle neun hielten. Drei Restlücken wurden behoben:
+- Bild↑, Pos1 und Ziffernblock-Pfeile wechselten weiter die Seite.
+- Gehaltenes Enter bei langer Wiederhol-Verzögerung (1,5 s): Statt einer festen Wartezeit merkt sich die App jetzt, ob die Taste beim Öffnen noch gedrückt ist.
+- Das Löschen eines älteren Eintrags derselben Karte nahm das Banner weg.
+
+Die Anleitung zu den Pfeiltasten ist präzisiert. Mutationsprüfung: 5 von 14 Mutationen überlebten anfangs, nach den neuen Tests werden alle erkannt (geprüft u. a. Pfeile auf der ganzen Seite, Gleichstand ohne Ausblenden, Leertaste, App-Ende, alte Fokus-Aufträge, Banner nach Kartennummer, feste Wartezeit).
+
 Bewusst offen: „Nicht vergeben“ wird nicht gespeichert. Gespeichert bräuchte es einen Weg zum Zurücksetzen, sonst bliebe ein Fehlklick dauerhaft.
 
 Nicht prüfbar: Beamer als echter zweiter Bildschirm (auch Aus- und Einstecken), Spotify-Fokus unter Cinnamon, ob Cinnamon die Bildschirmschoner-Sperre beachtet.

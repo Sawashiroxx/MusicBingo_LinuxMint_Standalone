@@ -333,6 +333,33 @@ WITHOUT_NUMBER = 0  # Rückgabe statt Kartennummer: „Ohne Kartennummer prüfen
 MAX_LISTED_CARDS = 8
 
 
+# Bestätigungstasten: Enter (alle Varianten) und Leertaste. Welche davon gerade gedrückt sind, merkt sich die App
+# über alle Fenster hinweg (Hauptfenster, „Bingo prüfen“, Kartensuche) – damit das Ergebnis erkennt, ob die Taste
+# aus dem vorigen Dialog noch gehalten wird. Eine feste Wartezeit reicht nicht: Bei langer Wiederhol-Verzögerung
+# (Systemeinstellung) kam die erste Wiederholung erst danach und trug den Gewinner ungesehen ein.
+CONFIRM_KEYS = (Gdk.KEY_Return, Gdk.KEY_KP_Enter, Gdk.KEY_ISO_Enter, Gdk.KEY_space)
+_held_confirm_keys: set[int] = set()
+# Kommt die Loslass-Meldung abhanden, gilt eine Taste als losgelassen, wenn so lange keine Wiederholung kam
+HELD_KEY_TIMEOUT_US = 2_500_000
+
+
+def _note_confirm_press(_widget, event) -> bool:
+    if event.keyval in CONFIRM_KEYS:
+        _held_confirm_keys.add(event.keyval)
+    return False
+
+
+def _note_confirm_release(_widget, event) -> bool:
+    _held_confirm_keys.discard(event.keyval)
+    return False
+
+
+def track_confirm_keys(window: Gtk.Window) -> None:
+    """Fenster meldet gedrückte/losgelassene Bestätigungstasten (ändert nichts an ihrer Wirkung)."""
+    window.connect("key-press-event", _note_confirm_press)
+    window.connect("key-release-event", _note_confirm_release)
+
+
 def bingo_check_dialog(parent: Gtk.Window, card_count: int, rule: str,
                        preset: int | None = None) -> tuple[int, str] | None:
     """Rückgabe (Kartennummer, Name); Kartennummer WITHOUT_NUMBER = Prüfung über die Songs.
@@ -354,6 +381,7 @@ def bingo_check_dialog(parent: Gtk.Window, card_count: int, rule: str,
     name.set_activates_default(True)
     content.pack_start(field("Name", name), False, False, 0)
     content.pack_start(label(f"Gewinnregel dieser Runde: {rule}.", "muted", "small", wrap=True), False, False, 0)
+    track_confirm_keys(dialog)
     dialog.show_all()
     (name if preset else number).grab_focus()
     response = dialog.run()
@@ -451,6 +479,7 @@ def find_card_dialog(parent: Gtk.Window, songs: list[Song], drawn_keys: set[str]
     search.connect("search-changed", lambda *_: rows.invalidate_filter())
     update()
     dialog.set_default_size(620, 560)
+    track_confirm_keys(dialog)
     dialog.show_all()
     search.grab_focus()
     response = dialog.run()
@@ -512,19 +541,32 @@ def bingo_result_dialog(parent: Gtk.Window, card: BingoCard, number: int, name: 
     content.pack_start(label(f"{hits} gezogene Songs auf dieser Karte · grün = gezogen · gold = Gewinnlinie",
                              "muted", "small"), False, False, 0)
     # Enter aus „Bingo prüfen“ noch gehalten: Die Tastenwiederholung trüge sonst sofort den Gewinner ein,
-    # ohne dass jemand die Karte gesehen hat. Erst nach 0,8 s ohne (wiederholtes) Enter gilt die Taste wieder.
-    locked_until = [GLib.get_monotonic_time() + 800_000]
+    # ohne dass jemand die Karte gesehen hat. Ist beim Öffnen eine Bestätigungstaste gedrückt, zählt sie erst
+    # nach dem Loslassen wieder. Dazu kurz nach dem Öffnen ein Prellschutz, falls eine Meldung fehlt.
+    opened = GLib.get_monotonic_time()
+    state = {"wait_release": bool(_held_confirm_keys), "last": opened}
 
-    def swallow_held_enter(_dialog, event) -> bool:
-        if event.keyval not in (Gdk.KEY_Return, Gdk.KEY_KP_Enter, Gdk.KEY_ISO_Enter, Gdk.KEY_space):
+    def swallow_held_key(_dialog, event) -> bool:
+        if event.keyval not in CONFIRM_KEYS:
             return False
         now = GLib.get_monotonic_time()
-        if now < locked_until[0]:
-            locked_until[0] = now + 300_000
+        if now - opened < 250_000:
+            state["wait_release"] = True
+        if state["wait_release"] and now - state["last"] > HELD_KEY_TIMEOUT_US:
+            state["wait_release"] = False  # lange keine Wiederholung: Loslassen ging verloren, neuer Druck
+        if state["wait_release"]:
+            state["last"] = now
             return True
         return False
 
-    dialog.connect("key-press-event", swallow_held_enter)
+    def released(_dialog, event) -> bool:
+        _held_confirm_keys.discard(event.keyval)
+        if event.keyval in CONFIRM_KEYS:
+            state["wait_release"] = False
+        return False
+
+    dialog.connect("key-press-event", swallow_held_key)
+    dialog.connect("key-release-event", released)
     dialog.show_all()
     response = dialog.run()
     dialog.destroy()

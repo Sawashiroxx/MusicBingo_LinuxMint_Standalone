@@ -61,6 +61,13 @@ REFOCUS_DELAYS_MS = (400, 1200, 2500)
 REFOCUS_AUTOSTART_S = 20.0  # Spotify-Autostart: Das Spotify-Fenster erscheint erst nach Sekunden
 EXTERNAL_TARGETS = ("spotify", "youtube")
 NAVIGATION_KEYS = (Gdk.KEY_Tab, Gdk.KEY_ISO_Left_Tab, Gdk.KEY_Up, Gdk.KEY_Down, Gdk.KEY_Left, Gdk.KEY_Right)
+# Tasten, mit denen die Seitenleiste die Seite wechselt – auf der Seite Spielleitung mit Fokus dort verschluckt
+SIDEBAR_MOVE_KEYS = frozenset((
+    Gdk.KEY_Up, Gdk.KEY_Down, Gdk.KEY_Left, Gdk.KEY_Right,
+    Gdk.KEY_KP_Up, Gdk.KEY_KP_Down, Gdk.KEY_KP_Left, Gdk.KEY_KP_Right,
+    Gdk.KEY_Page_Up, Gdk.KEY_Page_Down, Gdk.KEY_KP_Page_Up, Gdk.KEY_KP_Page_Down,
+    Gdk.KEY_Home, Gdk.KEY_End, Gdk.KEY_KP_Home, Gdk.KEY_KP_End,
+))
 
 
 def is_readable_file(path_text: str | None) -> bool:
@@ -173,6 +180,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         # Abend: Beamer, Aufdecken, Timer, Gewinner-Banner
         self.beamer: BeamerWindow | None = None
         self.revealed = False
+        self.banner_winner = None  # Gewinner-Eintrag, den das BINGO-Banner gerade feiert
         self.ignored_cards: set[int] = set()  # Gewinnkontrolle: nicht vergebene Karten oben ausblenden
         self.inhibit_cookie = 0  # Bildschirmschoner/Ruhezustand gesperrt, solange der Beamer offen ist
         self.banner = ""
@@ -204,6 +212,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self._held_keys: dict[int, int] = {}   # Taste → Zeit des letzten Tastendrucks (ms, X-Server-Zeit)
         self._last_click_draw = 0.0
         self.connect("key-press-event", self._on_key)
+        dialogs.track_confirm_keys(self)
         self.connect("key-release-event", self._on_key_release)
         self.connect("focus-out-event", lambda *_args: self._held_keys.clear() or False)
         # In der Einfangphase: Knöpfe verbrauchen den Klick selbst, das Fenster sähe ihn sonst nie –
@@ -1798,6 +1807,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.timer.stop()  # Stufe entschieden – weiter mit dem Stufen-Button oder dem nächsten Song
         self.timer_hold = True
         self.banner = f"BINGO! Karte #{winner.card}" + (f" · {winner.name}" if winner.name else "")
+        self.banner_winner = winner
         self._save()
         self._render_winners()
         self._render_caller()
@@ -2158,9 +2168,10 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         if dialogs.confirm(self, "Gewinner löschen?",
                            f"Karte #{winner.card} ({winner.target_label}, Runde {winner.round})", "Löschen"):
             removed = self.service.remove_winner(index)
-            if self.banner.startswith(f"BINGO! Karte #{removed.card}") and (
-                    self.banner == f"BINGO! Karte #{removed.card}" or self.banner.startswith(f"BINGO! Karte #{removed.card} · ")):
-                self.banner = ""  # zurückgenommener Gewinner: nicht weiter auf dem Beamer feiern
+            if self.banner and removed is self.banner_winner:
+                # Genau der gefeierte Eintrag wurde zurückgenommen – nicht ein älterer Eintrag derselben Karte
+                self.banner = ""
+                self.banner_winner = None
             self._save()
             self._render_winners()
             self._render_target_status()
@@ -3205,11 +3216,11 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         focus = self.get_focus()
         on_game = self.stack.get_visible_child_name() == "game"
         in_sidebar = isinstance(focus, Gtk.ListBoxRow) and focus.get_parent() is self.nav
+        if on_game and in_sidebar and event.keyval in SIDEBAR_MOVE_KEYS:
+            # Pfeil-, Bild- oder Pos1-Taste mit Fokus in der Seitenleiste (dort steht er nach dem Start): Sie wechselte
+            # die Seite bzw. schaltete die Kürzel ab – mitten im Spiel nie gewollt. Seitenwechsel per Maus oder Tab.
+            return True
         if event.keyval in NAVIGATION_KEYS:
-            if on_game and in_sidebar and event.keyval not in (Gdk.KEY_Tab, Gdk.KEY_ISO_Left_Tab):
-                # Pfeiltaste mit Fokus in der Seitenleiste (dort steht er nach dem Start): Sie wechselte die Seite
-                # bzw. schaltete die Kürzel ab – mitten im Spiel nie gewollt. Seitenwechsel per Maus oder Tab.
-                return True
             self.keyboard_navigating = True
             return False
         if not on_game:
