@@ -558,7 +558,7 @@ class GameService:
             raise ValueError("Ungültige Anzahl für „Zuletzt“ auf dem Beamer im Spielstand.")
         service.beamer_recent_count = recent_count
         recent_size = settings.get("beamer_recent_size", "normal")
-        if recent_size not in RECENT_SIZES:
+        if not isinstance(recent_size, str) or recent_size not in RECENT_SIZES:  # Liste/Objekt: nicht hashbar
             raise ValueError("Ungültige Größe für „Zuletzt“ auf dem Beamer im Spielstand.")
         service.beamer_recent_size = recent_size
         raw_winners = data.get("winners", [])

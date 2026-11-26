@@ -61,8 +61,11 @@ class BeamerWindow(Gtk.Window):
         self.banner_label.set_lines(2)
         self.banner_label.set_ellipsize(Pango.EllipsizeMode.END)
         self.banner.pack_start(self.banner_label, True, True, 0)
-        self.recent_label = label("", "beamer-recent", wrap=True, xalign=0.5)
+        # „Zuletzt“: genau eine Zeile je Song. Ohne Umbruch – eine umbrochene Fortsetzung („& Anastacia“) sähe
+        # zentriert wie ein eigener Song aus und kostete Höhe. Zu lange Zeilen enden mit „…“ (Titel steht vorn).
+        self.recent_label = label("", "beamer-recent", xalign=0.5)
         self.recent_label.set_justify(Gtk.Justification.CENTER)
+        self.recent_label.set_ellipsize(Pango.EllipsizeMode.END)
         box.pack_start(self.event_label, False, False, 0)
         box.pack_start(self.round_label, False, False, 0)
         middle = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=MIDDLE_SPACING)
