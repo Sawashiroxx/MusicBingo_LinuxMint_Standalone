@@ -112,4 +112,3 @@ Die GitHub-Pipeline führt Lint, Unit- (Mint 21 + 22), Integrations-, Sicherheit
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Ablauf für Änderungen |
 | [CHANGELOG.md](CHANGELOG.md) | Versionen |
 
-**Neue Version veröffentlichen:** Version in `musik_bingo/__init__.py` und `pyproject.toml` erhöhen, Abschnitt in `CHANGELOG.md` ergänzen, dann Tag pushen (`git tag v2.3.0 && git push origin v2.3.0`) oder auf GitHub *Releases → Draft a new release* mit neuem Tag. Die Pipeline testet und hängt ZIP, tar.gz und Prüfsummen an.
