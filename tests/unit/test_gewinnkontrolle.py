@@ -94,6 +94,27 @@ class ReachedAtTests(unittest.TestCase):
             reached_at(card, 3, True, [], "jackpot")
 
 
+class TiedAtTests(unittest.TestCase):
+    """Regression 2.6.2: Gleichstand nur gegen die früheste OFFENE Karte geprüft – lag davor eine Reservekarte
+    („Nicht vergeben“), wurde ein echter Gleichstand der nächsten Karten nicht gemeldet."""
+
+    def test_tie_behind_excluded_earlier_card(self):
+        from musik_bingo.application.game_service import TargetStatus
+        status = TargetStatus(reached=((1, 3), (2, 4), (3, 4), (4, 6)), entered=(), entered_open=(), earlier=(), one_missing=0)
+        self.assertEqual(status.tied, ())  # #1 allein bei Song 3
+        self.assertEqual(status.tied_at(4), (2, 3))
+        self.assertEqual(status.tied_at(4, frozenset({1})), (2, 3))
+        self.assertEqual(status.tied_at(4, frozenset({2})), ())  # nur noch eine Karte – kein Gleichstand
+        self.assertEqual(status.tied_at(6), ())
+
+    def test_tie_counts_entered_cards(self):
+        from musik_bingo.application.game_service import TargetStatus
+        status = TargetStatus(reached=((3, 4),), entered=(2,), entered_open=(), earlier=(), one_missing=0,
+                              entered_reached=((2, 4),))
+        self.assertEqual(status.tied, (2, 3))
+        self.assertEqual(status.tied_at(4, frozenset({2})), ())
+
+
 class TargetStatusServiceTests(unittest.TestCase):
     def setUp(self):
         self.service = GameService()

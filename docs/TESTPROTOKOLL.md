@@ -6,10 +6,10 @@ Stand: 26.11.2026 (v2.6.2: Rundennummer auf dem Beamer abschaltbar; v2.6.1: „Z
 
 | Suite | Tests | Ergebnis |
 |---|---|---|
-| Unit (Gewinngarantie, Prognose, Abend-Logik, Timer, Songliste-Fuzzing mit 40 000 Zufallsfällen, Kartensuche, Spotify-Links, Spotify-Prüfliste, CSV ohne Raten, ungültige Zeichen im Spielstand, Jahrzehnt-Kataloge, Startziel der Runde, Tabellen-Text, Gewinnkontrolle, Beamer ohne Aufdecken, „Zuletzt“-Anzahl/-Größe inkl. manipulierter Werte) | 188 | ✅ |
-| Integration (Spotify-/YouTube-Simulation inkl. hängendem, verzögertem und umverknüpftem Spotify, Abspiel-Kontrolle, GStreamer-Netzwerksperre, Druck, Installer, Update-Skript, Sicherungen, Release-Bau inkl. Release-Notizen je Version) | 82 | ✅ |
+| Unit (Gewinngarantie, Prognose, Abend-Logik, Timer, Songliste-Fuzzing mit 40 000 Zufallsfällen, Kartensuche, Spotify-Links, Spotify-Prüfliste, CSV ohne Raten, ungültige Zeichen im Spielstand, Jahrzehnt-Kataloge, Startziel der Runde, Tabellen-Text, Gewinnkontrolle, Beamer ohne Aufdecken, „Zuletzt“-Anzahl/-Größe inkl. manipulierter Werte) | 190 | ✅ |
+| Integration (Spotify-/YouTube-Simulation inkl. hängendem, verzögertem und umverknüpftem Spotify, Abspiel-Kontrolle, GStreamer-Netzwerksperre, Druck, Installer, Update-Skript, Sicherungen, Release-Bau inkl. Release-Notizen je Version) | 83 | ✅ |
 | Sicherheit (u. a. Windows-/UTF-16-Dateien auch als *.txt, präparierte Umleitungsdateien ohne Netz) | 21 | ✅ |
-| GUI/E2E unter Xvfb (Gesamtablauf, Abend-Funktionen, Spotify-Abspielen in 12 Varianten, Spotify-Links, YouTube im Browser, echte Tastendrücke, Prüfen ohne Kartennummer, Grenzfälle, Kontrast, Fensterklasse, Mindestgröße 1366×768, Screenshots; „wie am Abend“ auf 1366×768 mit echten Dialogen, gehaltenen Tasten, Mausklicks und Speicherfehler; Abend nur mit „Volle Karte“ über mehrere Runden; Beamer auf 1280×720 und 1024×768; Gewinnkontrolle mit Prüfknopf, Gleichstand und Zielwechsel; Beamer ohne Aufdecken; „Zuletzt“ einstellbar auf 1280×720/1024×768/1920×1080 mit einer Zeile je Song; echtes Mausrad über Zahlenfeldern; Gewinnkontrolle mit fester Ziehreihenfolge; Runde auf dem Beamer abschaltbar auf 1366×768) | 20 | ✅ |
+| GUI/E2E unter Xvfb (Gesamtablauf, Abend-Funktionen, Spotify-Abspielen in 12 Varianten, Spotify-Links, YouTube im Browser, echte Tastendrücke, Prüfen ohne Kartennummer, Grenzfälle, Kontrast, Fensterklasse, Mindestgröße 1366×768, Screenshots; „wie am Abend“ auf 1366×768 mit echten Dialogen, gehaltenen Tasten, Mausklicks und Speicherfehler; Abend nur mit „Volle Karte“ über mehrere Runden; Beamer auf 1280×720 und 1024×768; Gewinnkontrolle mit Prüfknopf, Gleichstand und Zielwechsel; Beamer ohne Aufdecken; „Zuletzt“ einstellbar auf 1280×720/1024×768/1920×1080 mit einer Zeile je Song; echtes Mausrad über Zahlenfeldern; Gewinnkontrolle mit fester Ziehreihenfolge; Runde auf dem Beamer abschaltbar auf 1366×768; Befunde der Gesamtprüfung 2.6.2 inkl. Pfeiltasten und gehaltenem Enter mit echten Tastendrücken) | 22 | ✅ |
 | ruff (Fehler, Bugs, bandit-Sicherheitsregeln), shellcheck | – | ✅ |
 
 In der CI ist ein fehlendes GUI-Werkzeug (xvfb-run, xdotool, xprop …) ein Fehler, kein Überspringen.
@@ -117,6 +117,29 @@ Geprüft: Laden, Speichern, Import (auch alte und manipulierte Stände), Start m
 Selbst gefunden (GUI-Test): In der Zeile neben „Titel auf dem Beamer aufdecken“ machte der Schalter das Fenster mindestens 1466 px breit. Jetzt eigene Zeile, Mindestbreite 1272 px.
 
 Mutationsprüfung: 8 von 8 eingebauten Fehlern erkannt. Jeder neue Test schlägt mit dem alten Code fehl.
+
+### Gesamtprüfung 2.6.2 (Claude Fable 5.2)
+
+Urteil: einsatzfähig, kein blockierender Befund. Geprüft u. a.:
+- 400 Zufallsspiele: Gewinnkontrolle, „Bingo prüfen“ und Nachspielen Song für Song stimmen überein, keine Abweichung.
+- 11 Läufe zufälliger Bedienung mit bis zu 1500 Schritten, Prüfungen nach jedem Schritt.
+- `kill -9` mitten in Runde 2: nach dem Neustart alles wieder da.
+- Zweiter Start, Tempo mit 170 Karten.
+
+Behoben, jeweils mit Test, der mit dem Stand davor anschlägt:
+- Gleichstand hinter einer Reservekarte
+- Pfeiltasten mit Fokus in der Seitenleiste
+- Steuerung drängte sich vor die Spotify-Suche
+- Bildschirmschoner während des Spiels
+- Sicherungen gedruckter Kartensätze rotierten heraus
+- Banner nach „Gewinner löschen“
+- Gehaltenes Enter
+- Export ohne lokalen Pfad
+- Sicherungsordner im Import-Dialog
+
+Bewusst offen: „Nicht vergeben“ wird nicht gespeichert. Gespeichert bräuchte es einen Weg zum Zurücksetzen, sonst bliebe ein Fehlklick dauerhaft.
+
+Nicht prüfbar: Beamer als echter zweiter Bildschirm (auch Aus- und Einstecken), Spotify-Fokus unter Cinnamon, ob Cinnamon die Bildschirmschoner-Sperre beachtet.
 
 Bekannt, nicht durch diese Änderung: `tasten.py` auf 1366×768 statt 1600×1000 scheitert an einer Prüfung (Feld „Auflösung“ liegt unter dem Bildschirmrand, der echte Klick trifft daneben) – mit 2.6.1 genauso. In der Pipeline läuft das Szenario auf 1600×1000.
 

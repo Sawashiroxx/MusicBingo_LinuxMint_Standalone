@@ -34,16 +34,17 @@ class TargetStatus:
     one_missing: int               # Karten (nicht eingetragen), denen genau noch ein Song fehlt
     entered_reached: tuple[tuple[int, int], ...] = ()  # eingetragene Karten am Ziel: (Karte, Song-Nr.)
 
+    def tied_at(self, song: int, exclude: frozenset[int] = frozenset()) -> tuple[int, ...]:
+        """Karten (offen oder eingetragen), die genau bei Song ``song`` ans Ziel kamen – ohne ``exclude``.
+        Nur bei mehr als einer Karte ein Gleichstand."""
+        cards = tuple(sorted(card for card, at in self.reached + self.entered_reached
+                             if at == song and card not in exclude))
+        return cards if len(cards) > 1 else ()
+
     @property
     def tied(self) -> tuple[int, ...]:
-        """Karten, die mit der frühesten offenen Karte beim selben Song ans Ziel kamen – auch schon eingetragene.
-        Nur bei mehr als einer Karte ein Gleichstand."""
-        if not self.reached:
-            return ()
-        first = self.reached[0][1]  # früheste noch offene Karte
-        everything = self.reached + self.entered_reached
-        cards = tuple(sorted(card for card, song in everything if song == first))
-        return cards if len(cards) > 1 else ()
+        """Gleichstand der frühesten offenen Karte (siehe ``tied_at``)."""
+        return self.tied_at(self.reached[0][1]) if self.reached else ()
 
 
 @dataclass

@@ -65,6 +65,15 @@ class GuiTests(unittest.TestCase):
         """„Zuletzt“: Anzahl und Größe einstellbar, auch „Sehr groß“ mit Banner passt auf 1280×720."""
         self.scenario("beamer_zuletzt.py")
 
+    def test_findings_of_full_review_262(self):
+        """Gleichstand hinter Reservekarte, Banner nach Löschen, Bildschirmschoner, Spotify-Suche, Export, Import."""
+        self.scenario("befunde_262.py")
+
+    def test_arrow_keys_and_held_enter_with_real_keystrokes(self):
+        """Pfeiltasten schalteten Kürzel ab bzw. wechselten die Seite; gehaltenes Enter trug Gewinner ungesehen ein."""
+        require(self, "xdotool")
+        self.scenario("tasten_262.py")
+
     def test_beamer_round_can_be_hidden(self):
         """„Runde auf dem Beamer zeigen“ aus: nur „Ziel: …“, auch nach neuen Runden; Fenster passt auf 1366×768."""
         self.scenario("beamer_runde.py", screen="1366x768")

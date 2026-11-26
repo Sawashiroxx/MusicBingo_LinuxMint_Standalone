@@ -174,6 +174,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self.beamer: BeamerWindow | None = None
         self.revealed = False
         self.ignored_cards: set[int] = set()  # Gewinnkontrolle: nicht vergebene Karten oben ausblenden
+        self.inhibit_cookie = 0  # Bildschirmschoner/Ruhezustand gesperrt, solange der Beamer offen ist
         self.banner = ""
         self.timer = SongTimer()
         self.timer_source = 0
@@ -1913,12 +1914,33 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
                 self._set_status("Beamer-Fenster geöffnet – auf den Beamer ziehen und doppelklicken (Vollbild).")
             self._update_beamer()
             button.set_label("Beamer schließen")
+            self._set_idle_inhibit(True)
         elif not button.get_active() and self.beamer is not None:
             beamer, self.beamer = self.beamer, None
             beamer.destroy()
             button.set_label("Beamer öffnen")
+            self._set_idle_inhibit(False)
+
+    def _set_idle_inhibit(self, active: bool) -> None:
+        """Solange der Beamer offen ist: kein Bildschirmschoner, keine Sperre, kein Ruhezustand.
+
+        Mit Song-Timer oder „Player folgen“ gibt es minutenlang keine Eingabe – ohne Sperre ginge sonst mitten
+        im Spiel der Bildschirmschoner an (auch auf dem Beamer). Ob die Arbeitsumgebung das beachtet, entscheidet
+        sie selbst; schlägt es fehl, läuft die App normal weiter.
+        """
+        application = self.get_application()
+        if application is None:
+            return
+        if active and not self.inhibit_cookie:
+            self.inhibit_cookie = application.inhibit(
+                self, Gtk.ApplicationInhibitFlags.IDLE | Gtk.ApplicationInhibitFlags.SUSPEND,
+                "Musik Bingo: Der Beamer ist offen") or 0
+        elif not active and self.inhibit_cookie:
+            application.uninhibit(self.inhibit_cookie)
+            self.inhibit_cookie = 0
 
     def _beamer_closed(self, *_args) -> bool:
+        self._set_idle_inhibit(False)
         self.beamer = None
         self.beamer_button.set_active(False)
         self.beamer_button.set_label("Beamer öffnen")
@@ -2063,9 +2085,12 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             return
         status = self.service.target_status()
         parts = [f"Ziel: {target}"]
-        tied = status.tied
+        # Gleichstand der frühesten Karte, die nicht als „nicht vergeben“ ausgeblendet ist
+        ignored = frozenset(self.ignored_cards)
+        visible = [(number, song) for number, song in status.reached if number not in ignored]
+        tied = status.tied_at(visible[0][1], ignored) if visible else ()
         if tied:
-            parts.append(f"Gleichstand: {len(tied)} Karten beim selben Song (Nr. {status.reached[0][1]})")
+            parts.append(f"Gleichstand: {len(tied)} Karten beim selben Song (Nr. {visible[0][1]})")
         if status.reached:
             count = len(status.reached)
             parts.append("1 Karte hat das Ziel erreicht" if count == 1 else f"{count} Karten haben das Ziel erreicht")
@@ -2095,7 +2120,6 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         self._no_focus_on_click(self.target_cards)
         self.target_cards.show_all()
         # Kompakte Zeile oben – für die früheste noch nicht eingetragene, nicht ausgeblendete Karte
-        visible = [(number, song) for number, song in status.reached if number not in self.ignored_cards]
         if visible:
             first, song = visible[0]
             if tied and first in tied:
@@ -2133,10 +2157,14 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         winner = self.service.winners[index]
         if dialogs.confirm(self, "Gewinner löschen?",
                            f"Karte #{winner.card} ({winner.target_label}, Runde {winner.round})", "Löschen"):
-            self.service.remove_winner(index)
+            removed = self.service.remove_winner(index)
+            if self.banner.startswith(f"BINGO! Karte #{removed.card}") and (
+                    self.banner == f"BINGO! Karte #{removed.card}" or self.banner.startswith(f"BINGO! Karte #{removed.card} · ")):
+                self.banner = ""  # zurückgenommener Gewinner: nicht weiter auf dem Beamer feiern
             self._save()
             self._render_winners()
             self._render_target_status()
+            self._update_beamer()
 
     def _export_winners(self, _button) -> None:
         if not self.service.winners:
@@ -2308,7 +2336,13 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
             return
         self._cancel_playback_check()
         if target == "spotify":
-            self._keep_in_front()
+            if is_spotify(song.link):
+                self._keep_in_front()
+            else:
+                # Ohne Link öffnet Spotify nur die Suche – die Spielleitung muss dort den Titel anklicken.
+                # Dann die Steuerung nicht nach vorn holen (auch nicht durch Aufträge vom vorigen Song).
+                self.refocus_generation += 1
+                self.refocus_until = 0.0
         if target == "spotify" and self.player is None:
             self._connect_player(quiet=True)
         spotify_mpris = bool(self.player and self.player.info.is_spotify)
@@ -2974,6 +3008,7 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         if self.beamer is not None:
             beamer, self.beamer = self.beamer, None
             beamer.destroy()
+        self._set_idle_inhibit(False)
         if self.song_save_source:
             GLib.source_remove(self.song_save_source)
             self.song_save_source = 0
@@ -2999,13 +3034,20 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         dialog.add_buttons("Abbrechen", Gtk.ResponseType.CANCEL, "Exportieren", Gtk.ResponseType.ACCEPT)
         dialog.set_do_overwrite_confirmation(True)
         dialog.set_current_name("musik-bingo-spielstand.json")
-        if dialog.run() == Gtk.ResponseType.ACCEPT:
-            try:
-                self.store.export_to(Path(dialog.get_filename()), self.service)
-                self._set_status("Spielstand exportiert")
-            except OSError as error:
-                dialogs.message(self, Gtk.MessageType.ERROR, "Export fehlgeschlagen", str(error))
+        accepted = dialog.run() == Gtk.ResponseType.ACCEPT
+        filename = dialog.get_filename() if accepted else None
         dialog.destroy()
+        if not accepted:
+            return
+        if not filename:  # z. B. Handy (MTP) oder Netzlaufwerk ohne lokalen Pfad
+            dialogs.message(self, Gtk.MessageType.ERROR, "Export fehlgeschlagen",
+                            "An diesen Ort kann nicht gespeichert werden. Bitte einen lokalen Ordner oder USB-Stick wählen.")
+            return
+        try:
+            self.store.export_to(Path(filename), self.service)
+            self._set_status(f"Spielstand exportiert: {filename}")
+        except OSError as error:
+            dialogs.message(self, Gtk.MessageType.ERROR, "Export fehlgeschlagen", str(error))
 
     def _import(self, _button) -> None:
         dialog = Gtk.FileChooserDialog(title="Spielstand importieren", transient_for=self,
@@ -3015,6 +3057,12 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         file_filter.set_name("Musik Bingo Spielstand (*.json)")
         file_filter.add_pattern("*.json")
         dialog.add_filter(file_filter)
+        # Sicherungen liegen im versteckten Datenordner – als Lesezeichen links, damit man sie unter Zeitdruck findet
+        if self.store.backup_dir.is_dir():
+            try:
+                dialog.add_shortcut_folder(str(self.store.backup_dir))
+            except GLib.Error:
+                pass
         response = dialog.run()
         filename = Path(dialog.get_filename()) if response == Gtk.ResponseType.ACCEPT and dialog.get_filename() else None
         dialog.destroy()
@@ -3076,8 +3124,8 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
                 "Die App stellt selbst keine Internetverbindung her und überträgt keine Daten.",
                 "Spielstand: ~/.local/share/musik-bingo/spielstand.json (nur lokal).",
                 "Vor neuen Karten oder einem Import wird automatisch gesichert: "
-                "~/.local/share/musik-bingo/sicherungen/ (die letzten 10). Wiederherstellen über "
-                "Menü → Spielstand importieren.",
+                "~/.local/share/musik-bingo/sicherungen/ (die letzten 50 Kartensätze vor „Karten erzeugen“, sonst die "
+                "letzten 10). Wiederherstellen über Menü → Spielstand importieren, der Ordner steht dort links.",
                 "Spotify/YouTube werden nur über die lokale Player-Schnittstelle (MPRIS) gesteuert oder per "
                 "Klick im Browser geöffnet – wie ein selbst angeklickter Link.",
                 "Chart- und Weihnachtslisten sind fest in der App gespeichert (Stand KW 47/2026).",
@@ -3154,11 +3202,17 @@ class MusikBingoWindow(Gtk.ApplicationWindow):
         if event.keyval == Gdk.KEY_F11:
             self._toggle_fullscreen()
             return True
+        focus = self.get_focus()
+        on_game = self.stack.get_visible_child_name() == "game"
+        in_sidebar = isinstance(focus, Gtk.ListBoxRow) and focus.get_parent() is self.nav
         if event.keyval in NAVIGATION_KEYS:
+            if on_game and in_sidebar and event.keyval not in (Gdk.KEY_Tab, Gdk.KEY_ISO_Left_Tab):
+                # Pfeiltaste mit Fokus in der Seitenleiste (dort steht er nach dem Start): Sie wechselte die Seite
+                # bzw. schaltete die Kürzel ab – mitten im Spiel nie gewollt. Seitenwechsel per Maus oder Tab.
+                return True
             self.keyboard_navigating = True
             return False
-        focus = self.get_focus()
-        if self.stack.get_visible_child_name() != "game":
+        if not on_game:
             return False
         if isinstance(focus, Gtk.SpinButton):
             # Zahlenfelder (Timer): Ziffern und Rücktaste gehören dem Feld, Kürzel nicht

@@ -83,7 +83,7 @@ Spätestens nach dem letzten Song hat jede Karte „Volle Karte“ – es gibt a
 - Kein Netzwerkzugriff durch die App, keine Telemetrie
 - Spotify/YouTube nur lokal über MPRIS (D-Bus) oder per Klick im Browser
 - Spielstand nur lokal: `~/.local/share/musik-bingo/spielstand.json`
-- Vor neuen Karten oder einem Import wird automatisch gesichert (`…/musik-bingo/sicherungen/`, die letzten 10) – gedruckte Karten bleiben prüfbar
+- Vor neuen Karten oder einem Import wird automatisch gesichert (`…/musik-bingo/sicherungen/`: die letzten 50 Kartensätze vor „Karten erzeugen“, sonst die letzten 10; beim Importieren als Lesezeichen links) – gedruckte Karten bleiben prüfbar
 
 ## Projektstruktur
 

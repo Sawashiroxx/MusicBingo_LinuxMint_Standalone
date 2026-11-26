@@ -7,7 +7,7 @@ from typing import Callable
 import gi
 
 gi.require_version("Gtk", "3.0")
-from gi.repository import GLib, Gtk, Pango
+from gi.repository import Gdk, GLib, Gtk, Pango
 
 from musik_bingo.domain.catalog import Catalog, MixResult, random_mix, unique_songs
 from musik_bingo.domain.link_coverage import LinkCoverage, link_coverage
@@ -511,6 +511,20 @@ def bingo_result_dialog(parent: Gtk.Window, card: BingoCard, number: int, name: 
     content.pack_start(frame, False, False, 0)
     content.pack_start(label(f"{hits} gezogene Songs auf dieser Karte · grün = gezogen · gold = Gewinnlinie",
                              "muted", "small"), False, False, 0)
+    # Enter aus „Bingo prüfen“ noch gehalten: Die Tastenwiederholung trüge sonst sofort den Gewinner ein,
+    # ohne dass jemand die Karte gesehen hat. Erst nach 0,8 s ohne (wiederholtes) Enter gilt die Taste wieder.
+    locked_until = [GLib.get_monotonic_time() + 800_000]
+
+    def swallow_held_enter(_dialog, event) -> bool:
+        if event.keyval not in (Gdk.KEY_Return, Gdk.KEY_KP_Enter, Gdk.KEY_ISO_Enter, Gdk.KEY_space):
+            return False
+        now = GLib.get_monotonic_time()
+        if now < locked_until[0]:
+            locked_until[0] = now + 300_000
+            return True
+        return False
+
+    dialog.connect("key-press-event", swallow_held_enter)
     dialog.show_all()
     response = dialog.run()
     dialog.destroy()
