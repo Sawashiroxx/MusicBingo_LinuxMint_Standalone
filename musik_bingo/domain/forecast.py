@@ -155,6 +155,24 @@ def missing_to_target(card: BingoCard, size: int, free_space: bool, drawn: list[
     return min(len(first | second) for index, first in enumerate(open_lines) for second in open_lines[index + 1:])
 
 
+def reached_at(card: BingoCard, size: int, free_space: bool, drawn: list[Song], target: str,
+               diagonals: bool = False) -> int | None:
+    """Bei welchem gezogenen Song (1, 2, …) hat diese Karte das Gewinnziel erreicht? None = noch nicht.
+
+    Damit lässt sich ein echter Gleichstand (gleicher Song) von einem übersehenen früheren Gewinn unterscheiden.
+    """
+    if target not in WIN_TARGETS:
+        raise ValueError("Unbekanntes Gewinnziel.")
+    position = {song.key: index for index, song in enumerate(drawn, start=1)}
+    times = [0 if key is None else position.get(key) for key in _cell_keys(card, size, free_space)]
+    if target == "volle_karte":
+        return None if None in times else max(times)
+    done = sorted(max(times[cell] for cell in line) for line in _lines(size, diagonals)
+                  if all(times[cell] is not None for cell in line))
+    needed = 1 if target == "reihe" else 2
+    return done[needed - 1] if len(done) >= needed else None
+
+
 def target_reached(target: str, complete_lines: int, full: bool) -> bool:
     if target not in WIN_TARGETS:
         raise ValueError("Unbekanntes Gewinnziel.")

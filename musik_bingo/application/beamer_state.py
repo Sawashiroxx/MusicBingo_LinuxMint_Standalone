@@ -2,6 +2,8 @@
 
 Der Songtitel wird erst gezeigt, wenn die Spielleitung ihn aufdeckt (oder der
 Timer auflöst). Frühere Songs sind ohnehin bekannt und dürfen sichtbar sein.
+Ist „Titel auf dem Beamer aufdecken“ aus (``service.beamer_reveal``), bleibt jeder
+Titel verborgen – auch die früheren Songs unter „Zuletzt“.
 """
 from dataclasses import dataclass
 
@@ -34,9 +36,9 @@ def build_beamer_state(service, revealed: bool, timer_text: str = "", banner: st
         title, artist, shown = "", "", False
     else:
         song_line = f"Song {len(drawn)}"
-        shown = bool(revealed)
+        shown = bool(revealed) and service.beamer_reveal
         title, artist = (current.title, current.artist) if shown else (HIDDEN, "")
     # „Zuletzt“ = vorherige Songs; der aktuelle steht (aufgedeckt) groß in der Mitte oder bleibt verborgen.
     previous = drawn[:-1] if current is not None else drawn
-    recent = tuple(song.display_name for song in reversed(previous[-5:]))
+    recent = tuple(song.display_name for song in reversed(previous[-5:])) if service.beamer_reveal else ()
     return BeamerState(service.event_title, round_line, song_line, title, artist, shown, recent, timer_text, banner)

@@ -1,15 +1,15 @@
 # Prüfprotokoll
 
-Stand: 23.11.2026 (v2.5.1 + Abendprüfung) · Umgebung: Ubuntu 24.04 (= Basis Linux Mint 22), Python 3.12, GTK 3.24, Xvfb
+Stand: 25.11.2026 (v2.5.1 + Abendprüfung + Gewinnkontrolle/Beamer-Aufdecken, geprüft von Claude Fable 5.2) · Umgebung: Ubuntu 24.04 (= Basis Linux Mint 22), Python 3.12, GTK 3.24, Xvfb
 
 ## Automatisch (auch in der GitHub-Pipeline)
 
 | Suite | Tests | Ergebnis |
 |---|---|---|
-| Unit (Gewinngarantie, Prognose, Abend-Logik, Timer, Songliste-Fuzzing mit 40 000 Zufallsfällen, Kartensuche, Spotify-Links, Spotify-Prüfliste, CSV ohne Raten, ungültige Zeichen im Spielstand, Jahrzehnt-Kataloge, Startziel der Runde, Tabellen-Text, Gewinnkontrolle) | 180 | ✅ |
+| Unit (Gewinngarantie, Prognose, Abend-Logik, Timer, Songliste-Fuzzing mit 40 000 Zufallsfällen, Kartensuche, Spotify-Links, Spotify-Prüfliste, CSV ohne Raten, ungültige Zeichen im Spielstand, Jahrzehnt-Kataloge, Startziel der Runde, Tabellen-Text, Gewinnkontrolle, Beamer ohne Aufdecken) | 186 | ✅ |
 | Integration (Spotify-/YouTube-Simulation inkl. hängendem, verzögertem und umverknüpftem Spotify, Abspiel-Kontrolle, GStreamer-Netzwerksperre, Druck, Installer, Update-Skript, Sicherungen, Release-Bau) | 79 | ✅ |
 | Sicherheit (u. a. Windows-/UTF-16-Dateien auch als *.txt, präparierte Umleitungsdateien ohne Netz) | 21 | ✅ |
-| GUI/E2E unter Xvfb (Gesamtablauf, Abend-Funktionen, Spotify-Abspielen in 12 Varianten, Spotify-Links, YouTube im Browser, echte Tastendrücke, Prüfen ohne Kartennummer, Grenzfälle, Kontrast, Fensterklasse, Mindestgröße 1366×768, Screenshots; „wie am Abend“ auf 1366×768 mit echten Dialogen, gehaltenen Tasten, Mausklicks und Speicherfehler; Abend nur mit „Volle Karte“ über mehrere Runden; Beamer auf 1280×720 und 1024×768; Gewinnkontrolle mit Prüfknopf, Gleichstand und Zielwechsel) | 17 | ✅ |
+| GUI/E2E unter Xvfb (Gesamtablauf, Abend-Funktionen, Spotify-Abspielen in 12 Varianten, Spotify-Links, YouTube im Browser, echte Tastendrücke, Prüfen ohne Kartennummer, Grenzfälle, Kontrast, Fensterklasse, Mindestgröße 1366×768, Screenshots; „wie am Abend“ auf 1366×768 mit echten Dialogen, gehaltenen Tasten, Mausklicks und Speicherfehler; Abend nur mit „Volle Karte“ über mehrere Runden; Beamer auf 1280×720 und 1024×768; Gewinnkontrolle mit Prüfknopf, Gleichstand und Zielwechsel; Beamer ohne Aufdecken) | 18 | ✅ |
 | ruff (Fehler, Bugs, bandit-Sicherheitsregeln), shellcheck | – | ✅ |
 
 In der CI ist ein fehlendes GUI-Werkzeug (xvfb-run, xdotool, xprop …) ein Fehler, kein Überspringen.

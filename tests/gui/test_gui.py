@@ -57,6 +57,10 @@ class GuiTests(unittest.TestCase):
         """Gewinnkontrolle: volle Karten erscheinen nach jedem Song als Prüfknopf – nur für die Spielleitung."""
         self.scenario("gewinnkontrolle.py")
 
+    def test_beamer_reveal_can_be_switched_off(self):
+        """„Titel auf dem Beamer aufdecken“ aus: kein Titel auf dem Beamer, auch nicht per T oder Auflösung."""
+        self.scenario("beamer_aufdecken.py")
+
     def test_shortcuts_with_real_keystrokes(self):
         """Regression: Leertaste/T wirkten mit echten Tastendrücken nicht (nur im Direktaufruf)."""
         require(self, "xdotool")

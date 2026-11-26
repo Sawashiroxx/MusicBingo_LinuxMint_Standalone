@@ -75,7 +75,7 @@ def scenario(w):
     w._render_caller()
     check("Karte #42 hat das Ziel erreicht", w.service.check_win(42)[0])
 
-    dialogs.bingo_check_dialog = lambda parent, count, rule: (dialogs.WITHOUT_NUMBER, "Anna")
+    dialogs.bingo_check_dialog = lambda parent, count, rule, preset=None: (dialogs.WITHOUT_NUMBER, "Anna")
     result = {}
 
     def result_dialog(parent, card, number, name, *args, **kwargs):

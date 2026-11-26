@@ -111,7 +111,7 @@ def scenario(w):
     w.timer_spin.set_value(30)
     w._draw_next()
     w._toggle_timer_pause()
-    dialogs.bingo_check_dialog = lambda parent, count, rule: None
+    dialogs.bingo_check_dialog = lambda parent, count, rule, preset=None: None
     w._verify_bingo(None)
     check("Pause bleibt nach abgebrochener Bingo-Prüfung", w.timer.paused)
     w._toggle_timer_pause()
@@ -142,7 +142,7 @@ def scenario(w):
     for song in w.service.game.cards[0].songs[:5]:
         w.service.draw_song(song)
     w._render_caller()
-    dialogs.bingo_check_dialog = lambda parent, count, rule: (1, "<i>Oma</i> Erna")
+    dialogs.bingo_check_dialog = lambda parent, count, rule, preset=None: (1, "<i>Oma</i> Erna")
     dialogs.bingo_result_dialog = lambda *args: True  # „Als Gewinner eintragen“
     w._verify_bingo(None)
     check("Gewinner eingetragen", len(w.service.winners) == 1 and w.service.winners[0].name == "<i>Oma</i> Erna")
@@ -154,7 +154,7 @@ def scenario(w):
     check("Gleiche Karte, gleiche Stufe: kein zweiter Eintrag", len(w.service.winners) == 1
           and "Schon eingetragen" in MESSAGES)
     loser = next(n for n in range(2, len(w.service.game.cards) + 1) if not w.service.check_win(n)[0])
-    dialogs.bingo_check_dialog = lambda parent, count, rule: (loser, "")
+    dialogs.bingo_check_dialog = lambda parent, count, rule, preset=None: (loser, "")
     dialogs.bingo_result_dialog = lambda *args: True
     w._verify_bingo(None)
     check("Karte ohne Bingo wird nicht eingetragen", len(w.service.winners) == 1)

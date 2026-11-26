@@ -42,7 +42,7 @@ def scenario(w):
         for song in game.cards[number - 1].songs:
             w.service.draw_song(song)
         w._render_caller()
-        dialogs.bingo_check_dialog = lambda parent, count, rule: (number, name)
+        dialogs.bingo_check_dialog = lambda parent, count, rule, preset=None: (number, name)
         dialogs.bingo_result_dialog = lambda *args, **kwargs: True  # „Als Gewinner eintragen“
         w._verify_bingo(None)
 
