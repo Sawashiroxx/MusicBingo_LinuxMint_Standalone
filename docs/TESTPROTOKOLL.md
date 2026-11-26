@@ -1,6 +1,6 @@
 # Prüfprotokoll
 
-Stand: 26.11.2026 (v2.6.2: Rundennummer auf dem Beamer abschaltbar; v2.6.1: „Zuletzt“ auf dem Beamer einstellbar, geprüft von Claude Fable 5.2; v2.6.0: Abendprüfung + Gewinnkontrolle/Beamer-Aufdecken) · Umgebung: Ubuntu 24.04 (= Basis Linux Mint 22), Python 3.12, GTK 3.24, Xvfb
+Stand: 26.11.2026 (v2.6.3: Restlücken aus dem zweiten Prüfdurchgang; v2.6.2: Rundennummer auf dem Beamer abschaltbar; v2.6.1: „Zuletzt“ auf dem Beamer einstellbar, geprüft von Claude Fable 5.2; v2.6.0: Abendprüfung + Gewinnkontrolle/Beamer-Aufdecken) · Umgebung: Ubuntu 24.04 (= Basis Linux Mint 22), Python 3.12, GTK 3.24, Xvfb
 
 ## Automatisch (auch in der GitHub-Pipeline)
 
@@ -136,6 +136,13 @@ Behoben, jeweils mit Test, der mit dem Stand davor anschlägt:
 - Gehaltenes Enter
 - Export ohne lokalen Pfad
 - Sicherungsordner im Import-Dialog
+
+2. Durchgang (Prüfung der Korrekturen, behoben in 2.6.3): alle neun Korrekturen hielten. Behoben wurden:
+- Bild↑, Pos1 und Ziffernblock-Pfeile wechselten weiter die Seite.
+- Gehaltenes Enter bei 1,5 s Wiederhol-Verzögerung trug den Gewinner doch ein. Jetzt zählt die Taste erst nach dem Loslassen, statt nach einer festen Wartezeit.
+- Das Löschen eines älteren Eintrags derselben Karte nahm das Banner weg.
+
+Mutationsprüfung: Anfangs blieben 5 von 14 eingebauten Fehlern unentdeckt. Nach den neuen Tests werden alle 8 nachgeprüften Mutationen erkannt, darunter genau diese 5.
 
 Bewusst offen: „Nicht vergeben“ wird nicht gespeichert. Gespeichert bräuchte es einen Weg zum Zurücksetzen, sonst bliebe ein Fehlklick dauerhaft.
 

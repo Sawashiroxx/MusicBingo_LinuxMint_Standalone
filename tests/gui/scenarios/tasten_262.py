@@ -49,12 +49,22 @@ def arrows_on_game_page(w):
     w.nav.select_row(w.nav.get_row_at_index(2))  # wie ein Klick in der Seitenleiste
     pump(0.5)
     drawn = lambda: len(w.service.game.caller.drawn)  # noqa: E731
-    for key in ("Down", "Up", "Down", "Left", "Right"):
+    for key in ("Down", "Up", "Down", "Left", "Right", "Prior", "Next", "Home", "End",
+                "KP_Up", "KP_Down", "KP_Home", "KP_Prior"):
         before = drawn()
         press(w, key)
         check(f"{key}: Seite bleibt „Spielleitung“", w.stack.get_visible_child_name() == "game")
         press(w, "space")
         check(f"{key}, dann Leertaste: genau ein Song gezogen", drawn() == before + 1)
+    # In Zahlenfeldern der Spielleitung wirken Pfeiltasten weiter (nur die Seitenleiste ist gesperrt)
+    w.timer_spin.set_value(10)
+    w.timer_spin.grab_focus()
+    pump(0.2)
+    press(w, "Up")
+    check(f"Pfeil hoch im Song-Timer erhöht den Wert ({w.timer_spin.get_value_as_int()})",
+          w.timer_spin.get_value_as_int() > 10)
+    w.timer_spin.set_value(0)
+    w._timer_settings_changed()
     # Auf anderen Seiten bleiben Pfeiltasten normale Navigation
     w._select_page("songs")
     w.nav.get_row_at_index(0).grab_focus()
@@ -65,6 +75,46 @@ def arrows_on_game_page(w):
     w._select_page("game")
     w.nav.select_row(w.nav.get_row_at_index(2))
     pump(0.3)
+
+
+def set_repeat_delay(delay_ms: int, rate: int = 40) -> None:
+    """Tasten-Wiederhol-Verzögerung des X-Servers setzen (wie in den Systemeinstellungen)."""
+    import ctypes
+    x11 = ctypes.CDLL("libX11.so.6")
+    x11.XOpenDisplay.restype = ctypes.c_void_p
+    display = ctypes.c_void_p(x11.XOpenDisplay(None))
+    x11.XkbSetAutoRepeatRate(display, 0x100, delay_ms, rate)  # 0x100 = XkbUseCoreKbd
+    x11.XSync(display, 0)
+    x11.XCloseDisplay(display)
+
+
+def hold_enter_into_result(w, hold_ms: int, extra=None) -> list[str]:
+    """„Bingo prüfen“ mit gehaltenem Enter bestätigen; Ergebnisdialog danach schließen. Liefert die Dialogtitel."""
+    seen = []
+
+    def tick():
+        dialog = visible_dialog()
+        if dialog is None:
+            return True
+        title = dialog.get_title() or ""
+        if title not in seen:
+            seen.append(title)
+            if title == "Bingo prüfen":
+                xdo("windowfocus", "--sync", str(dialog.get_window().get_xid()))
+                xdo("keydown", "Return")
+                GLib.timeout_add(hold_ms, lambda: xdo("keyup", "Return") or False)
+            elif title.startswith("BINGO") and extra:
+                extra(dialog)
+        return True
+
+    source = GLib.timeout_add(100, tick)
+    closer = GLib.timeout_add(hold_ms + 2500, lambda: [d.response(Gtk.ResponseType.CANCEL)
+                                                       for d in [visible_dialog()] if d] and False)
+    w._verify_bingo(None, preset=5)
+    pump(0.5)
+    GLib.source_remove(source)
+    remove_source(closer)
+    return seen
 
 
 def held_enter_does_not_confirm(w):
@@ -99,6 +149,20 @@ def held_enter_does_not_confirm(w):
     remove_source(closer)
     check(f"Ergebnis wurde angezeigt ({seen})", any(title.startswith("BINGO") for title in seen))
     check("Gehaltenes Enter trägt keinen Gewinner ein", [winner.card for winner in w.service.winners] == [])
+
+    # Lange Wiederhol-Verzögerung (1,5 s): Die erste Wiederholung kommt erst nach jeder festen Wartezeit
+    set_repeat_delay(1500)
+    try:
+        seen = hold_enter_into_result(w, 3000)
+    finally:
+        set_repeat_delay(660, 25)  # Standard von Xorg
+    check(f"Verzögerung 1,5 s, Enter 3 s gehalten: kein Gewinner ({seen})",
+          any(t.startswith("BINGO") for t in seen) and w.service.winners == [])
+
+    # Während Enter noch gehalten ist, zusätzlich die Leertaste: auch sie bestätigt nicht
+    seen = hold_enter_into_result(w, 1500, extra=lambda dialog: GLib.timeout_add(
+        500, lambda: xdo("key", "space") or False))
+    check(f"Leertaste bei gehaltenem Enter: kein Gewinner ({seen})", w.service.winners == [])
 
     # Bewusst: kurzes Enter zum Prüfen, Karte ansehen, nach 1,1 s Enter → eingetragen
     state = {}

@@ -1,5 +1,22 @@
 # Änderungsprotokoll
 
+## 2.6.3 – November 2026
+
+Restlücken aus dem zweiten Prüfdurchgang von 2.6.2 (Claude Fable 5.2: alle neun Korrekturen halten, nichts blockierend).
+
+- **Seitenleiste auf der Seite Spielleitung:** Neben den Pfeiltasten wechselten auch Bild↑/↓, Pos1/Ende und die Pfeile auf dem Ziffernblock mitten im Spiel die Seite. Jetzt tun alle diese Tasten dort nichts, solange der Fokus in der Seitenleiste steht. In Zahlenfeldern und Listen wirken sie wie bisher, Tab ebenso.
+- **Gehaltenes Enter, auch bei langer Wiederhol-Verzögerung:** 2.6.2 sperrte Enter im Ergebnis für eine feste Zeit. Ist in den Systemeinstellungen eine lange Verzögerung eingestellt (z. B. 1,5 s), kam die erste Wiederholung erst danach und trug den Gewinner doch ungesehen ein. Jetzt merkt sich die App, ob Enter oder die Leertaste beim Öffnen des Ergebnisses noch gedrückt ist. Dann zählt die Taste erst nach dem Loslassen wieder.
+- **BINGO-Banner:** Es verschwindet nur noch, wenn genau der gefeierte Gewinner gelöscht wird. In 2.6.2 nahm auch das Löschen eines älteren Eintrags derselben Karte (z. B. „1 Reihe“, gefeiert wird „2 Reihen“) das Banner weg.
+- Anleitung: Hinweis zu Pfeil-, Bild- und Pos1-Tasten präzisiert.
+- Tests: Fünf von 14 gezielt eingebauten Fehlern blieben in 2.6.2 unentdeckt. Jetzt werden sie erkannt, durch neue Prüfungen zu diesen Fällen:
+  - Pfeiltaste im Zahlenfeld
+  - Gleichstand mit ausgeblendeter Karte beim selben Song
+  - Leertaste bei gehaltenem Enter
+  - 1,5 s Wiederhol-Verzögerung
+  - App-Ende mit offenem Beamer
+  - Song mit Link, sofort danach ein Song ohne Link
+  - älterer Eintrag derselben Karte
+
 ## 2.6.2 – November 2026
 
 - **Rundennummer auf dem Beamer abschaltbar:** neuer Schalter „Runde auf dem Beamer zeigen“ unter „Beamer & Timer“. Ist er aus, steht oben auf dem Beamer nur das Gewinnziel („Ziel: Volle Karte“) statt „Runde 10 · Ziel: Volle Karte“, etwa wenn beim Ausprobieren mit „Neu mischen“ schon hochgezählt wurde. Die Spielleitung sieht die Runde weiter, die Gewinnerliste zählt Runden wie bisher. Gespeichert im Spielstand, alte Stände zeigen die Runde wie bisher.

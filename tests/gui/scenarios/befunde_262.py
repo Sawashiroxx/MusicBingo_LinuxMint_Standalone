@@ -49,6 +49,31 @@ def tie_behind_unassigned_card(w):
     check("Nach Eintragen von #2: #3 weiter als Gleichstand", "Gleichstand" in w.target_hint_label.get_text())
 
 
+def no_tie_with_hidden_card_at_same_song(w):
+    """Eine ausgeblendete Reservekarte zählt auch beim selben Song nicht für einen Gleichstand."""
+    from musik_bingo.domain.caller import Caller
+    from musik_bingo.domain.models import BingoCard
+
+    game = w.service.game
+    s = game.songs
+    # Karte 1 und 2 beide bei Song 3, Karte 3 nie
+    game.cards = [BingoCard(s[0:3] + s[10:16]), BingoCard(s[0:3] + s[16:22]), BingoCard(s[21:30])]
+    game.caller = Caller(game.songs, s, -1)
+    w.service.winners = []
+    w.win_buttons["reihe"].set_active(True)
+    w.service.win_target = "reihe"
+    w.ignored_cards.clear()
+    for _ in range(3):
+        w._draw_next()
+    pump(0.2)
+    check("Karten 1 und 2 bei Song 3: Gleichstand", "Gleichstand" in w.target_hint_label.get_text())
+    w._ignore_hint_card(None)  # Karte 1 nicht vergeben
+    pump(0.2)
+    hint, panel = w.target_hint_label.get_text(), w.target_status_label.get_text()
+    check(f"Nach „Nicht vergeben“ für #1: kein Gleichstand mehr ({hint})",
+          "Gleichstand" not in hint and "Gleichstand" not in panel and "#2" in hint)
+
+
 def banner_after_removing_winner(w):
     w.beamer_button.set_active(True)
     pump(0.3)
@@ -68,6 +93,24 @@ def banner_after_removing_winner(w):
     pump(0.2)
     check("Löschen eines anderen Gewinners lässt das Banner stehen",
           w.beamer.banner_label.get_text().startswith("BINGO! Karte #3"))
+    # Dieselbe Karte gewinnt zwei Stufen: Löschen des ÄLTEREN Eintrags lässt das Banner stehen
+    w._advance_stage()  # „2 Reihen“: Karte 3 bekommt ihre zweite Reihe
+    for song in w.service.game.cards[2].songs[3:6]:
+        if song not in w.service.game.caller.drawn:
+            w.service.draw_song(song)
+    w._render_caller()
+    w._register_winner(3, "Erna")
+    pump(0.2)
+    older = next(i for i, winner in enumerate(w.service.winners) if winner.card == 3 and winner.target == "reihe")
+    w._remove_winner(None, older)
+    pump(0.2)
+    check("Älteren Eintrag derselben Karte gelöscht: Banner bleibt",
+          w.beamer.banner.get_visible() and w.beamer.banner_label.get_text() == "BINGO! Karte #3 · Erna")
+    newer = next(i for i, winner in enumerate(w.service.winners) if winner.card == 3)
+    w._remove_winner(None, newer)
+    pump(0.2)
+    check("Gefeierten Eintrag gelöscht: Banner weg",
+          not w.beamer.banner.get_visible() or w.beamer.banner_label.get_text() == "")
 
 
 def idle_inhibit(w):
@@ -97,6 +140,11 @@ def idle_inhibit(w):
     beamer.destroy()
     pump(0.2)
     check("Beamer-Fenster geschlossen: Sperre aufgehoben", calls[-1] == ("aus", 42) and w.inhibit_cookie == 0)
+    w.beamer_button.set_active(True)
+    pump(0.2)
+    w._before_close(w, None)  # App-Ende mit offenem Beamer
+    check("App-Ende mit offenem Beamer: Sperre aufgehoben", calls[-1] == ("aus", 42) and w.inhibit_cookie == 0)
+    w.closing = False
     app.inhibit, app.uninhibit = real_inhibit, real_uninhibit
 
 
@@ -122,6 +170,33 @@ def no_refocus_without_link(w):
     pump(3.0)
     check("Spotify-Suche geöffnet", any("search" in uri for uri in opened))
     check(f"Steuerung drängt sich nicht vor die Suche ({len(presents)}× nach vorn)", presents == [])
+    # Song mit Link, sofort danach Song ohne Link: Aufträge des ersten Songs dürfen nicht mehr feuern
+    import dataclasses
+
+    from musik_bingo.domain.caller import Caller
+    game = w.service.game
+    linked = dataclasses.replace(game.songs[0], link="https://open.spotify.com/track/" + "1" * 22)
+    game.songs = [linked] + game.songs[1:]
+    plain = game.songs[1]
+
+    def fresh_order():
+        return [linked, plain] + game.songs[2:]
+
+    game.caller = Caller(game.songs, fresh_order(), -1)
+    active["own"] = True
+    w._draw_next()  # mit Link: Steuerung kommt zurück
+    active["own"] = False
+    pump(3.0)
+    check(f"Song mit Link: Steuerung kommt zurück ({len(presents)}×)", len(presents) >= 1)
+    presents.clear()
+    game.caller = Caller(game.songs, fresh_order(), -1)
+    active["own"] = True
+    w._draw_next()  # mit Link – Aufträge geplant …
+    pump(0.1)
+    w._draw_next()  # … und sofort der Song ohne Link
+    active["own"] = False
+    pump(3.0)
+    check(f"Link-Song, sofort danach ohne Link: keine alten Aufträge ({len(presents)}×)", presents == [])
     gtk_app.open_uri = real_open
     del w.present_with_time
     del w._own_window_active
@@ -172,6 +247,7 @@ def scenario(w):
     tie_behind_unassigned_card(w)
     banner_after_removing_winner(w)
     idle_inhibit(w)
+    no_tie_with_hidden_card_at_same_song(w)
     no_refocus_without_link(w)
     export_without_local_path(w)
     import_shows_backups(w)
