@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from musik_bingo.application.game_service import GameService
-from musik_bingo.infrastructure.file_store import MAX_BACKUPS, FileStore
+from musik_bingo.infrastructure.file_store import MAX_BACKUPS, MAX_CARD_SET_BACKUPS, FileStore
 
 
 def service(seed_text: str) -> GameService:
@@ -29,6 +29,27 @@ class BackupTests(unittest.TestCase):
             self.assertEqual(restored.game.cards[0].songs, first.game.cards[0].songs)
             self.assertEqual(stat.S_IMODE(backup.stat().st_mode) & 0o077, 0)
             self.assertEqual(stat.S_IMODE(store.backup_dir.stat().st_mode) & 0o077, 0)
+
+    def test_card_sets_are_not_pushed_out_by_other_backups(self):
+        """Regression 2.6.2: Sicherungen „vor neuen Karten“ (ein anderer, evtl. gedruckter Kartensatz) rotierten
+        mit allen übrigen nach 10 heraus – z. B. nach zehn Importen war der gedruckte Satz weg."""
+        with tempfile.TemporaryDirectory() as directory:
+            store = FileStore(Path(directory) / "spielstand.json")
+            printed = service("Gedruckt")
+            store.save(printed)
+            first = store.backup("vor-neuen-karten")
+            for i in range(MAX_BACKUPS + 5):
+                store.save(service(f"S{i}"))
+                store.backup("vor-import")
+            self.assertTrue(first.exists())
+            self.assertEqual(FileStore.import_from(first).game.cards[0].songs, printed.game.cards[0].songs)
+            names = [path.name for path in store.backups()]
+            self.assertEqual(sum(name.endswith("_vor-import.json") for name in names), MAX_BACKUPS)
+            for _ in range(MAX_CARD_SET_BACKUPS + 2):
+                store.backup("vor-neuen-karten")
+            card_sets = [path for path in store.backups() if path.name.endswith("_vor-neuen-karten.json")]
+            self.assertEqual(len(card_sets), MAX_CARD_SET_BACKUPS)
+            self.assertFalse(first.exists())  # auch Kartensätze haben eine Grenze, nur eine großzügige
 
     def test_copy_of_unreadable_file_is_never_rotated_away(self):
         with tempfile.TemporaryDirectory() as directory:

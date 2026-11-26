@@ -239,8 +239,10 @@ class PersistenceTests(unittest.TestCase):
         self.assertEqual((restored.timer_seconds, restored.reveal_seconds), (45, 5))
         self.assertEqual(restored.winners, svc.winners)
         svc.beamer_reveal = False
+        svc.beamer_round = False
         svc.beamer_recent_count, svc.beamer_recent_size = 1, "gross"
         restored = GameService.from_dict(svc.to_dict())
+        self.assertFalse(restored.beamer_round)
         self.assertEqual((restored.beamer_reveal, restored.beamer_recent_count, restored.beamer_recent_size),
                          (False, 1, "gross"))
         for count in (0, 5):  # beide Grenzen sind gültig (0 = „Zuletzt“ aus)
@@ -248,12 +250,13 @@ class PersistenceTests(unittest.TestCase):
             self.assertEqual(GameService.from_dict(svc.to_dict()).beamer_recent_count, count)
         data = svc.to_dict()
         for key in ("event_title", "round_number", "timer_seconds", "reveal_seconds", "beamer_reveal",
-                    "beamer_recent_count", "beamer_recent_size"):
+                    "beamer_recent_count", "beamer_recent_size", "beamer_round"):
             del data["settings"][key]
         del data["winners"]
         old = GameService.from_dict(data)
         self.assertEqual((old.event_title, old.round_number, old.timer_seconds, old.winners), ("Musik Bingo", 1, 0, []))
         self.assertTrue(old.beamer_reveal)  # alte Spielstände: Aufdecken wie bisher an
+        self.assertTrue(old.beamer_round)  # alte Spielstände: Runde wie bisher auf dem Beamer
         self.assertEqual((old.beamer_recent_count, old.beamer_recent_size), (3, "normal"))
 
     def test_duplicate_winners_in_file_are_rejected(self):
@@ -271,6 +274,8 @@ class PersistenceTests(unittest.TestCase):
             ("settings", "round_number", 0), ("settings", "round_number", True), ("settings", "timer_seconds", 9999),
             ("settings", "reveal_seconds", -1), ("settings", "event_title", 5),
             ("settings", "beamer_reveal", "nein"), ("settings", "beamer_reveal", 0),
+            ("settings", "beamer_round", "nein"), ("settings", "beamer_round", 0), ("settings", "beamer_round", None),
+            ("settings", "beamer_round", []),
             ("settings", "beamer_recent_count", 6), ("settings", "beamer_recent_count", -1),
             ("settings", "beamer_recent_count", True), ("settings", "beamer_recent_count", "3"),
             ("settings", "beamer_recent_size", "riesig"), ("settings", "beamer_recent_size", 2),
@@ -293,6 +298,8 @@ class PersistenceTests(unittest.TestCase):
                 GameService.from_dict(data)
             if key is not None and key.startswith("beamer_recent"):
                 self.assertIn("„Zuletzt“", str(caught.exception))
+            if key == "beamer_round":
+                self.assertIn("„Runde auf dem Beamer zeigen“", str(caught.exception))
 
 
 class SongTimerTests(unittest.TestCase):
@@ -358,6 +365,23 @@ class BeamerStateTests(unittest.TestCase):
         self.assertNotIn(first.display_name, repr(state))
         svc.beamer_reveal = True
         self.assertEqual(build_beamer_state(svc, revealed=True).recent, (first.display_name,))
+
+    def test_round_can_be_hidden_on_beamer(self):
+        """„Runde auf dem Beamer zeigen“ aus: oben nur das Ziel – z. B. nach Testrunden („Runde 10“)."""
+        svc = service()
+        svc.round_number = 10
+        svc.set_win_target("volle_karte")
+        svc.game.caller.draw_next()
+        self.assertEqual(build_beamer_state(svc, revealed=False).round_line, "Runde 10 · Ziel: Volle Karte")
+        svc.beamer_round = False
+        for revealed in (True, False):
+            state = build_beamer_state(svc, revealed=revealed, banner="BINGO!")
+            self.assertEqual(state.round_line, "Ziel: Volle Karte")
+            self.assertNotIn("Runde", repr(state))
+            self.assertNotIn("10", state.round_line)
+        svc.set_win_target("reihe")  # Ziel wechselt weiter mit
+        self.assertEqual(build_beamer_state(svc, revealed=False).round_line, "Ziel: 1 Reihe")
+        self.assertTrue(GameService().beamer_round)  # Standard: wie bisher an
 
     def test_recent_size_reaches_beamer(self):
         svc = service()

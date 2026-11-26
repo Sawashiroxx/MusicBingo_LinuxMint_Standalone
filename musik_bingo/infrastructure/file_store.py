@@ -12,6 +12,8 @@ def default_data_path() -> Path:
 
 
 MAX_BACKUPS = 10
+MAX_CARD_SET_BACKUPS = 50
+CARD_SET_REASON = "vor-neuen-karten"
 
 
 class FileStore:
@@ -26,7 +28,9 @@ class FileStore:
         """Sichert den aktuellen Spielstand, bevor er ersetzt wird (z. B. neue Karten).
 
         Gedruckte Karten bleiben so prüfbar, auch wenn versehentlich neu erzeugt
-        wurde. Es werden die letzten MAX_BACKUPS Sicherungen aufbewahrt.
+        wurde. Sicherungen „vor neuen Karten“ (ein anderer, evtl. gedruckter Kartensatz) werden bis
+        MAX_CARD_SET_BACKUPS aufbewahrt, alle übrigen bis MAX_BACKUPS – getrennt gezählt, damit Importe oder
+        andere Sicherungen einen gedruckten Kartensatz nicht verdrängen.
         ``keep``: Kopie einer unlesbaren Datei – sie zählt nicht zur Rotation und wird nie gelöscht.
         """
         if not self.path.is_file():
@@ -44,7 +48,10 @@ class FileStore:
         with os.fdopen(descriptor, "wb") as handle:
             handle.write(data)
         backups = sorted(self.backup_dir.glob("spielstand_*.json"))
-        for old in backups[:-MAX_BACKUPS]:
+        # Sicherungen „vor neuen Karten“ enthalten einen ANDEREN (evtl. gedruckten) Kartensatz: eigene, großzügige Grenze
+        card_sets = [path for path in backups if path.name.endswith(f"_{CARD_SET_REASON}.json")]
+        others = [path for path in backups if path not in card_sets]
+        for old in others[:-MAX_BACKUPS] + card_sets[:-MAX_CARD_SET_BACKUPS]:
             old.unlink(missing_ok=True)
         return target
 
