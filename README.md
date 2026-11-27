@@ -112,3 +112,6 @@ Die GitHub-Pipeline führt Lint, Unit- (Mint 21 + 22), Integrations-, Sicherheit
 | [CONTRIBUTING.md](CONTRIBUTING.md) | Ablauf für Änderungen |
 | [CHANGELOG.md](CHANGELOG.md) | Versionen |
 
+## Lizenz
+
+MIT – siehe [LICENSE](LICENSE). Die Songkataloge enthalten nur Titel und Interpreten, keine Musik.
